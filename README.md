@@ -1,32 +1,23 @@
-# React + TypeScript + Vite
+# FocusLens
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+FocusLens is a privacy-first desktop productivity assistant built with React, Vite, and Tauri.
 
-Currently, two official plugins are available:
+## Day 01: Desktop Foundation
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+The Tauri shell lives in `src-tauri/`. React is the frontend, while Tauri provides the native desktop window and the Rust entry point for future local integrations.
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```text
+npm run dev       # React only
+npm run tauri:dev # React + Tauri desktop window
+npm run build     # Frontend production build
+npm run tauri:build
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+The development window is configured as follows:
+
+- Product name: `FocusLens`
+- Window title: `FocusLens`
+- Default size: `1280 x 800`
+- Development URL: `http://localhost:1420`
+
+To run the desktop commands, install Rust through [rustup](https://rustup.rs/) and the Microsoft C++ Build Tools with the Windows SDK. `npx tauri info` reports whether those native prerequisites are available.
