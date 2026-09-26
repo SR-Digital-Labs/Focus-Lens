@@ -3,7 +3,7 @@ import { defineConfig } from 'vite'
 
 // https://vite.dev/config/
 // Tauri expects a fixed port and host access for the embedded webview
-export default defineConfig(async () => ({
+export default defineConfig({
   plugins: [react()],
   // Vite options tailored for Tauri development
   clearScreen: false,
@@ -27,5 +27,5 @@ export default defineConfig(async () => ({
       : 'safari13',
     minify: !process.env.TAURI_ENV_DEBUG ? 'esbuild' : false,
   },
-}))
+})
 
