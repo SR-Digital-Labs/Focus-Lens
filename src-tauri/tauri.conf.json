@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build",
-    "devUrl": "http://localhost:1420",
+    "devUrl": "http://127.0.0.1:1420",
     "frontendDist": "../dist"
   },
   "app": {
@@ -17,7 +17,8 @@
         "height": 800,
         "minWidth": 960,
         "minHeight": 640,
-        "resizable": true
+        "resizable": true,
+        "center": true
       }
     ],
     "security": {
