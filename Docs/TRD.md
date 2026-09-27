@@ -609,44 +609,50 @@ The overall technical data flow is:
 
 ---
 
-# 22. React ↔ Computer Vision Communication
+# 22. React ↔ Native / Computer Vision Communication
 
-The proposal requires communication between the frontend and native/desktop functionality but does not specify the exact IPC implementation.
-
-Therefore, the exact communication mechanism will be finalized during implementation.
-
-The logical communication should look like:
+The implementation uses a typed service boundary so React does not depend directly on Tauri commands or the future Python process:
 
 ```text
-React UI
-   ↓
-Session Manager
-   ↓
-CV Processing Service
-   ↓
-Detection Results
-   ↓
-Activity Events
-   ↓
-Session Manager
-   ↓
-React UI
+React UI → FocusLens Service → Tauri IPC → Native/CV Adapter → Python CV (future)
+                    ↑               │
+                    └── typed events┘
 ```
 
-The UI should receive structured information rather than raw camera frames wherever possible.
+Tauri commands carry request/response operations. Tauri events carry activity signals, session lifecycle events, and future CV responses. The frontend service owns transport details; UI components consume domain types. Python/OpenCV/MediaPipe is not implemented by this foundation and can later be connected behind the native adapter without exposing frames to React.
 
-Example:
+## 22.1 Request and Response Contract
+
+Requests use a unique correlation ID and a payload:
 
 ```json
 {
-  "personPresent": true,
-  "screenFacing": true,
-  "posture": "good",
-  "timestamp": "..."
+  "requestId": "uuid",
+  "payload": {}
 }
 ```
 
-The exact implementation format is a proposed design and can be changed during development.
+Responses echo `requestId` and contain either typed `data` or a structured `error`:
+
+```json
+{
+  "requestId": "uuid",
+  "ok": true,
+  "data": { "state": "unavailable", "reason": "not_implemented" }
+}
+```
+
+Errors use `{ "code", "message", "details?" }`. Clients reject mismatched IDs, failed responses, and responses without data. Timestamps belong to domain signals/events and use ISO 8601 strings.
+
+## 22.2 Event Contracts
+
+Events use `{ "eventId", "occurredAt", "sessionId?", "payload" }`. Initial event topics are `activity-signal`, `session-event`, and `cv-response`. Activity signals represent person presence, approximate screen-facing state, posture, and optional confidence; uncertain detections use `unknown`. Session events represent lifecycle transitions. CV responses correlate to a request and can carry a normalized activity signal or a structured error. Raw camera frames and landmarks are not part of the UI contract.
+
+## 22.3 Runtime, Configuration, and Errors
+
+Communication names and protocol configuration live in `src/config/appConfig.ts`; service contracts and adapters live under `src/services/`. The browser fallback reports native runtime unavailable, while the desktop camera-status command currently reports `not_implemented`. Native/service failures are normalized to stable codes (`NATIVE_UNAVAILABLE`, `NOT_IMPLEMENTED`, `PERMISSION_DENIED`, `DEVICE_UNAVAILABLE`, `INVALID_REQUEST`, `INVALID_RESPONSE`, `REQUEST_FAILED`, `INTERNAL`) and must not crash the UI.
+
+The existing Tauri v2 configuration retains its product identity, fixed Vite development URL, build paths, and desktop window bounds. Its CSP is restricted to local app/Vite resources and Tauri IPC; the default capability permits only event listening and unlistening for the main window. No CV implementation or camera access is part of this communication foundation.
 
 ---
 
