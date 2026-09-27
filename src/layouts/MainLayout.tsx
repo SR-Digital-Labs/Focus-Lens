@@ -1,5 +1,6 @@
 import React from 'react';
-import { Outlet, NavLink, useLocation } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
+import { NavItem } from '../components';
 import { LayoutDashboard, Target, History, BarChart3, Settings } from 'lucide-react';
 
 const MainLayout: React.FC = () => {
@@ -25,21 +26,11 @@ const MainLayout: React.FC = () => {
           <span>FocusLens</span>
         </div>
         <nav className="sidebar-nav">
-          <NavLink to="/" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-            <LayoutDashboard size={20} /> Dashboard
-          </NavLink>
-          <NavLink to="/session" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-            <Target size={20} /> Focus Session
-          </NavLink>
-          <NavLink to="/history" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-            <History size={20} /> Session History
-          </NavLink>
-          <NavLink to="/analytics" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-            <BarChart3 size={20} /> Analytics
-          </NavLink>
-          <NavLink to="/settings" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-            <Settings size={20} /> Settings
-          </NavLink>
+          <NavItem to="/" icon={<LayoutDashboard size={20} />} label="Dashboard" />
+          <NavItem to="/session" icon={<Target size={20} />} label="Focus Session" />
+          <NavItem to="/history" icon={<History size={20} />} label="Session History" />
+          <NavItem to="/analytics" icon={<BarChart3 size={20} />} label="Analytics" />
+          <NavItem to="/settings" icon={<Settings size={20} />} label="Settings" />
         </nav>
       </aside>
 
