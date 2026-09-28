@@ -1,8 +1,13 @@
 use serde::{Deserialize, Serialize};
 
+mod config;
+
+use config::SERVICE_PROTOCOL_VERSION;
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ServiceRequest<T> {
+    protocol_version: u32,
     request_id: String,
     payload: T,
 }
@@ -10,6 +15,7 @@ struct ServiceRequest<T> {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ServiceResponse<T> {
+    protocol_version: u32,
     request_id: String,
     ok: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -37,9 +43,27 @@ struct EmptyPayload {}
 
 #[tauri::command]
 fn get_camera_status(request: ServiceRequest<EmptyPayload>) -> ServiceResponse<CameraStatus> {
-    let ServiceRequest { request_id, payload: _ } = request;
+    let ServiceRequest {
+        protocol_version,
+        request_id,
+        payload: _,
+    } = request;
+
+    if protocol_version != SERVICE_PROTOCOL_VERSION {
+        return ServiceResponse {
+            protocol_version: SERVICE_PROTOCOL_VERSION,
+            request_id,
+            ok: false,
+            data: None,
+            error: Some(ServiceError {
+                code: "INVALID_REQUEST",
+                message: "Unsupported service protocol version.",
+            }),
+        };
+    }
 
     ServiceResponse {
+        protocol_version: SERVICE_PROTOCOL_VERSION,
         request_id,
         ok: true,
         data: Some(CameraStatus {

@@ -627,6 +627,7 @@ Requests use a unique correlation ID and a payload:
 
 ```json
 {
+      "protocolVersion": 1,
   "requestId": "uuid",
   "payload": {}
 }
@@ -636,6 +637,7 @@ Responses echo `requestId` and contain either typed `data` or a structured `erro
 
 ```json
 {
+      "protocolVersion": 1,
   "requestId": "uuid",
   "ok": true,
   "data": { "state": "unavailable", "reason": "not_implemented" }

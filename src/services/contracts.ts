@@ -15,11 +15,13 @@ export interface ServiceError {
 }
 
 export interface ServiceRequest<TPayload> {
+  protocolVersion: number;
   requestId: string;
   payload: TPayload;
 }
 
 export interface ServiceResponse<TData> {
+  protocolVersion: number;
   requestId: string;
   ok: boolean;
   data?: TData;

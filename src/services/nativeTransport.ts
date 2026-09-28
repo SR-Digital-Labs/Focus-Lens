@@ -22,6 +22,7 @@ export async function sendNativeRequest<TPayload, TData>(
   }
 
   const request: ServiceRequest<TPayload> = {
+    protocolVersion: appConfig.serviceProtocolVersion,
     requestId: crypto.randomUUID(),
     payload,
   };
@@ -37,6 +38,9 @@ export async function sendNativeRequest<TPayload, TData>(
         code: 'INTERNAL',
         message: 'Native service returned an unspecified error.',
       });
+    }
+    if (response.protocolVersion !== appConfig.serviceProtocolVersion) {
+      throw new FocusLensServiceError('INVALID_RESPONSE', 'Native service protocol version did not match.');
     }
     if (response.data === undefined) {
       throw new FocusLensServiceError('INVALID_RESPONSE', 'Native service response did not include data.');
