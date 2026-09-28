@@ -40,7 +40,7 @@ import os
 # Make the cv/ directory the Python path root so sibling packages
 # (config, services, utils, app) can be imported without the "cv." prefix.
 # ---------------------------------------------------------------------------
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
 from app.pipeline import CVPipeline
 

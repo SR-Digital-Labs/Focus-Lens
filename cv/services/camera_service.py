@@ -121,7 +121,9 @@ class CameraService:
         """
         log.info("Opening camera (index=%d, target=%dx%d)…", self._index, self._width, self._height)
 
-        cap = cv2.VideoCapture(self._index)
+        import sys
+        backend = cv2.CAP_DSHOW if sys.platform == "win32" else cv2.CAP_ANY
+        cap = cv2.VideoCapture(self._index, backend)
 
         if not cap.isOpened():
             raise CameraError(

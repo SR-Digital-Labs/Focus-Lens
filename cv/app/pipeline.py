@@ -25,10 +25,14 @@ from __future__ import annotations
 
 import time
 
+from typing import Optional, TYPE_CHECKING
 from config import SHOW_DEV_PREVIEW, TARGET_FPS
 from services.camera_service import CameraService, CameraError
 from services.frame_processor import FrameProcessor
 from utils.logger import get_logger
+
+if TYPE_CHECKING:
+    from app.dev_preview import DevPreview
 
 log = get_logger(__name__)
 
@@ -67,7 +71,7 @@ class CVPipeline:
 
         # DevPreview is imported lazily so the module can be used even
         # if an OpenCV GUI is not available (e.g. headless CI).
-        self._preview = None
+        self._preview: Optional['DevPreview'] = None
 
     # ------------------------------------------------------------------
     # Public API
