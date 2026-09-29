@@ -39,13 +39,28 @@ export type CameraState =
   | 'unknown'
   | 'inactive'
   | 'requesting'
+  | 'starting'
+  | 'permission_denied'
+  | 'frame_error'
+  | 'device_unavailable'
+  | 'initialization_failed'
+  | 'device_in_use'
   | 'active'
   | 'unavailable'
   | 'error';
 
 export interface CameraStatus {
   state: CameraState;
-  reason?: 'not_implemented' | 'runtime_unavailable' | 'permission_denied' | 'device_unavailable';
+  reason?: string;
+  message?: string;
+}
+
+export interface LiveCameraFrame {
+  data: HTMLVideoElement;
+  frameIndex: number;
+  capturedAt: number;
+  width: number;
+  height: number;
 }
 
 export interface ActivitySignal {

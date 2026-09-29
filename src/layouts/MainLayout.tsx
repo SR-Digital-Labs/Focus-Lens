@@ -2,32 +2,26 @@ import React, { useEffect, useState } from 'react';
 import { Outlet, NavLink, useLocation } from 'react-router-dom';
 import { LayoutDashboard, Target, History, BarChart3, Settings } from 'lucide-react';
 import type { CameraStatus } from '../services/contracts';
-import { focusLensService } from '../services/focusLensService';
+import { cameraCaptureService } from '../services/cameraCapture.service';
 
 const MainLayout: React.FC = () => {
   const location = useLocation();
-  const [cameraStatus, setCameraStatus] = useState<CameraStatus>({ state: 'unknown' });
+  const [cameraStatus, setCameraStatus] = useState<CameraStatus>(cameraCaptureService.getStatus());
 
   useEffect(() => {
-    let mounted = true;
-
-    focusLensService.camera.getStatus()
-      .then((status) => {
-        if (mounted) setCameraStatus(status);
-      })
-      .catch(() => {
-        if (mounted) setCameraStatus({ state: 'error' });
-      });
-
-    return () => {
-      mounted = false;
-    };
+    return cameraCaptureService.subscribeStatus(setCameraStatus);
   }, []);
 
   const cameraLabel = {
     unknown: 'Camera Status Unknown',
-    inactive: 'Camera Inactive',
+    inactive: 'Camera Disabled',
     requesting: 'Camera Starting',
+    starting: 'Camera Starting',
+    permission_denied: 'Camera Permission Denied',
+    frame_error: 'Camera Frame Error',
+    device_unavailable: 'Camera Not Found',
+    initialization_failed: 'Camera Initialization Failed',
+    device_in_use: 'Camera In Use',
     active: 'Camera Active',
     unavailable: 'Camera Unavailable',
     error: 'Camera Error',
@@ -76,7 +70,12 @@ const MainLayout: React.FC = () => {
         {/* Topbar */}
         <header className="topbar">
           <div className="topbar-title">{getPageTitle()}</div>
-          <div className={`camera-status${cameraStatus.state === 'active' ? ' active' : ''}`}>
+          <div
+            className={`camera-status${cameraStatus.state === 'active' ? ' active' : ''}`}
+            title={cameraStatus.message}
+            role="status"
+            aria-live="polite"
+          >
             <span className="dot" aria-hidden="true"></span>
             {cameraLabel}
           </div>
