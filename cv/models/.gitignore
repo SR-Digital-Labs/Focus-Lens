@@ -1,0 +1,8 @@
+# FocusLens — cv/models/.gitignore
+#
+# The .task model bundle is a large binary file (~30 MB).
+# It is downloaded on first run via:
+#   python cv/models/download_model.py
+#
+# Do NOT commit the model to source control.
+*.task

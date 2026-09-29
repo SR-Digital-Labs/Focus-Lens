@@ -36,12 +36,36 @@ TARGET_FPS: int = 30
 
 # Scale factor applied before running CV algorithms.
 # 1.0 = full resolution; 0.5 = half size (faster but less detail).
-# Keeping it at 1.0 for Day 04 — no heavy algorithms yet.
 FRAME_SCALE: float = 1.0
 
 # Colour space used internally (BGR is OpenCV's default).
-# Future pipeline steps may convert to RGB for MediaPipe.
 INTERNAL_COLOR_SPACE: str = "BGR"
+
+# ---------------------------------------------------------------------------
+# MediaPipe Face Landmarker  (Day 05+)
+# ---------------------------------------------------------------------------
+
+# Path to the MediaPipe Face Landmarker .task model bundle.
+# The model is downloaded once and stored in cv/models/.
+# All inference runs locally — no network access after download.
+import os as _os
+MEDIAPIPE_MODEL_PATH: str = _os.path.join(
+    _os.path.dirname(__file__),  # cv/config/
+    "..",                         # cv/
+    "models",
+    "face_landmarker.task",
+)
+
+# Minimum confidence for a detection to be accepted.
+# Range: 0.0 – 1.0.  Lower = more sensitive but more false positives.
+FACE_DETECTION_CONFIDENCE: float = 0.5
+
+# Minimum confidence for landmark tracking to be accepted.
+FACE_PRESENCE_CONFIDENCE: float = 0.5
+
+# Maximum number of faces to detect per frame.
+# FocusLens tracks the primary user only, so 1 is correct.
+MAX_FACES: int = 1
 
 # ---------------------------------------------------------------------------
 # Development / debug settings
@@ -58,6 +82,11 @@ DEV_PREVIEW_WINDOW_TITLE: str = "FocusLens — CV Dev Preview (press Q to quit)"
 # Overlay basic diagnostic info (FPS, frame counter) on the preview.
 SHOW_OVERLAY_INFO: bool = True
 
+# Draw detected facial landmarks on the dev preview frame.
+# This is a development-only debug feature — easy to disable here.
+# Has no effect when SHOW_DEV_PREVIEW is False.
+SHOW_LANDMARK_OVERLAY: bool = True
+
 # Overlay text colour: BGR tuple (OpenCV convention).
 OVERLAY_TEXT_COLOR: tuple[int, int, int] = (0, 255, 120)  # mint green
 OVERLAY_TEXT_SCALE: float = 0.55
@@ -70,3 +99,4 @@ OVERLAY_TEXT_THICKNESS: int = 1
 # Log level for the CV layer.
 # Options: "DEBUG", "INFO", "WARNING", "ERROR"
 LOG_LEVEL: str = "INFO"
+

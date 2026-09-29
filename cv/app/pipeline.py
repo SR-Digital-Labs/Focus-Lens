@@ -3,7 +3,7 @@ FocusLens — CV Pipeline
 ========================
 Orchestrates one complete frame-processing cycle:
 
-    CameraService  →  FrameProcessor  →  DevPreview (optional)
+    CameraService  ->  FrameProcessor  ->  DevPreview (optional)
 
 The pipeline owns the main capture loop and is the only place that
 knows how all services connect together.
@@ -15,8 +15,9 @@ When Phase 7 (Tauri integration) begins, the pipeline will also:
     * Send ``FrameResult`` data back to the Tauri layer instead of
       (or in addition to) showing the dev preview.
 
-Day 04 scope
+Day 05 scope
 ------------
+MediaPipe Face Landmarker is now integrated in FrameProcessor.
 Headless mode (``SHOW_DEV_PREVIEW = False``) runs the capture loop
 without displaying anything — useful for background/integrated use.
 """
@@ -88,7 +89,7 @@ class CVPipeline:
             * A non-recoverable camera error occurs.
         """
         log.info("=" * 55)
-        log.info("FocusLens — CV Pipeline starting (Day 04)")
+        log.info("FocusLens — CV Pipeline starting (Day 05)")
         log.info("Privacy: all processing is LOCAL — no data leaves this machine.")
         log.info("=" * 55)
 
@@ -131,6 +132,8 @@ class CVPipeline:
         """Release all resources regardless of how the loop exited."""
         self._running = False
         self._camera.release()
+        # Release MediaPipe model resources held by the processor.
+        self._processor.close()
         if self._preview is not None:
             self._preview.close()
             self._preview = None

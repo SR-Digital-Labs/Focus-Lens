@@ -1,5 +1,5 @@
 # FocusLens — CV Layer Requirements
-# Day 04: Python + OpenCV Computer Vision Foundation
+# Day 05: MediaPipe Face Landmarker Foundation
 #
 # Install with:
 #   pip install -r requirements.txt
@@ -8,3 +8,7 @@
 
 # Core CV library for webcam access and frame processing
 opencv-python==4.11.0.86
+
+# MediaPipe — local, on-device ML inference (Face Landmarker Task API)
+# Processes all frames locally; no data is sent to any external service.
+mediapipe>=0.10.14
