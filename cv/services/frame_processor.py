@@ -42,6 +42,7 @@ from config import (
 )
 from services.face_landmarker import FaceLandmarkerService, FaceDetectionResult
 from utils.logger import get_logger
+from models.cv_results import CVResult, CVState
 
 log = get_logger(__name__)
 
@@ -104,6 +105,7 @@ class FrameResult:
     frame_index: int
     processed_frame: Any  # numpy.ndarray
     face_detection: Optional[FaceDetectionResult] = None
+    cv_result: Optional[CVResult] = None
     person_state: str = PersonState.UNKNOWN
     screen_facing_state: str = ScreenFacingState.UNKNOWN
     posture_state: str = PostureState.UNKNOWN
@@ -169,6 +171,19 @@ class FrameProcessor:
             MediaPipe (Day 05). Other detection fields remain UNKNOWN
             until their respective phases are implemented.
         """
+        # Error handling: Invalid or empty frame
+        if frame is None or frame.data is None or frame.data.size == 0:
+            log.error("Invalid or empty frame received.")
+            cv_res = CVResult(
+                status=CVState.INVALID_FRAME,
+                error_message="Frame is empty or invalid"
+            )
+            return FrameResult(
+                frame_index=getattr(frame, "frame_index", -1) if frame else -1,
+                processed_frame=frame.data if frame and hasattr(frame, "data") else None,
+                cv_result=cv_res
+            )
+
         # Step 1 — optional resize
         image = self._maybe_resize(frame.data)
 
@@ -178,7 +193,22 @@ class FrameProcessor:
         # We reuse the original CameraFrame for the landmarker so it can
         # access the full-resolution frame before any resize was applied —
         # more detail = better landmark accuracy.
-        face_result: FaceDetectionResult = self._detect_face(frame)
+        try:
+            face_result: FaceDetectionResult = self._detect_face(frame)
+        except Exception as e:
+            log.error("Error during face detection: %s", e)
+            face_result = FaceDetectionResult(detected=False, available=False)
+
+        # Build reusable CVResult
+        cv_res = CVResult(status=CVState.DETECTED if face_result.detected else CVState.NOT_DETECTED)
+        cv_res.face_detected = face_result.detected
+        if face_result.detected and face_result.landmarks:
+            # Optionally convert MediaPipe landmarks to a serializable dict list
+            # We keep it simple for now as requested.
+            cv_res.face_landmarks = [{"x": lm.x, "y": lm.y, "z": lm.z} for lm in face_result.landmarks]
+        elif not face_result.available:
+            cv_res.status = CVState.UNAVAILABLE
+            cv_res.error_message = "MediaPipe landmarker unavailable"
 
         # Step 3 — (future) screen-facing estimation
         # screen_facing_state = self._estimate_screen_facing(face_result)
@@ -189,6 +219,7 @@ class FrameProcessor:
             frame_index=frame.frame_index,
             processed_frame=image,
             face_detection=face_result,
+            cv_result=cv_res,
             # Day 05: higher-level states not yet derived from face data.
             person_state=PersonState.UNKNOWN,
             screen_facing_state=ScreenFacingState.UNKNOWN,
