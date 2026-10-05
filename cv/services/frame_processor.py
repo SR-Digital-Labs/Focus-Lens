@@ -42,7 +42,7 @@ from config import (
 )
 from services.face_landmarker import FaceLandmarkerService, FaceDetectionResult
 from utils.logger import get_logger
-from models.cv_results import CVResult, CVState
+from models.cv_results import CVResult, CVState, PresenceResult
 
 log = get_logger(__name__)
 
@@ -107,6 +107,7 @@ class FrameResult:
     face_detection: Optional[FaceDetectionResult] = None
     cv_result: Optional[CVResult] = None
     person_state: str = PersonState.UNKNOWN
+    presence_result: Optional[PresenceResult] = None
     screen_facing_state: str = ScreenFacingState.UNKNOWN
     posture_state: str = PostureState.UNKNOWN
     extra: dict = field(default_factory=dict)
@@ -181,7 +182,9 @@ class FrameProcessor:
             return FrameResult(
                 frame_index=getattr(frame, "frame_index", -1) if frame else -1,
                 processed_frame=frame.data if frame and hasattr(frame, "data") else None,
-                cv_result=cv_res
+                cv_result=cv_res,
+                person_state=PersonState.UNKNOWN,
+                presence_result=PresenceResult(state=PersonState.UNKNOWN, detection_available=False)
             )
 
         # Step 1 — optional resize
@@ -214,14 +217,17 @@ class FrameProcessor:
         # screen_facing_state = self._estimate_screen_facing(face_result)
 
         # Step 4 — (future) person presence, posture, etc.
+        presence_result = self._detect_person_presence(face_result)
+        
+        log.info(f"Person Presence: {presence_result.state}")
 
         return FrameResult(
             frame_index=frame.frame_index,
             processed_frame=image,
             face_detection=face_result,
             cv_result=cv_res,
-            # Day 05: higher-level states not yet derived from face data.
-            person_state=PersonState.UNKNOWN,
+            person_state=presence_result.state,
+            presence_result=presence_result,
             screen_facing_state=ScreenFacingState.UNKNOWN,
             posture_state=PostureState.UNKNOWN,
         )
@@ -233,6 +239,18 @@ class FrameProcessor:
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
+
+    def _detect_person_presence(self, face_result: FaceDetectionResult) -> PresenceResult:
+        """
+        Determine if a person is present based on face detection results.
+        """
+        if not face_result.available:
+            return PresenceResult(state=PersonState.UNKNOWN, detection_available=False)
+            
+        if face_result.detected:
+            return PresenceResult(state=PersonState.PRESENT, detection_available=True)
+            
+        return PresenceResult(state=PersonState.AWAY, detection_available=True)
 
     def _detect_face(self, frame: Any) -> FaceDetectionResult:
         """

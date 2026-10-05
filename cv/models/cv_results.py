@@ -17,6 +17,16 @@ class CVState:
 
 
 @dataclass
+class PresenceResult:
+    """
+    Day 09: Person Presence Result
+    """
+    state: str
+    timestamp: float = field(default_factory=time.time)
+    detection_available: bool = False
+
+
+@dataclass
 class CVResult:
     """
     Application-friendly Computer Vision Result.
