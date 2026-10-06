@@ -59,38 +59,17 @@ from services.pose_landmarker import (
     PoseLandmarkerService,
 )
 from utils.logger import get_logger
-from models.cv_results import CVResult, CVState, PresenceResult
+from models.cv_results import (
+    CVResult,
+    CVState,
+    PresenceResult,
+    PersonState,
+    ScreenFacingState,
+    PostureState,
+)
+from services.presence_reliability import PresenceReliabilityTracker
 
 log = get_logger(__name__)
-
-
-# ---------------------------------------------------------------------------
-# Detection state enumerations
-# ---------------------------------------------------------------------------
-# These are forward-declared here so they appear in one central place.
-# Detection algorithms will populate them in later phases.
-
-
-class PersonState:
-    """Observable person-presence states."""
-    PRESENT = "PRESENT"
-    AWAY    = "AWAY"
-    UNKNOWN = "UNKNOWN"
-
-
-class ScreenFacingState:
-    """Observable screen-facing states."""
-    SCREEN_FACING = "SCREEN_FACING"
-    LOOKING_AWAY  = "LOOKING_AWAY"
-    UNKNOWN       = "UNKNOWN"
-
-
-class PostureState:
-    """Observable posture states."""
-    GOOD_POSTURE     = "GOOD_POSTURE"
-    SLOUCHED_POSTURE = "SLOUCHED_POSTURE"
-    UNKNOWN          = "UNKNOWN"
-    UNCERTAIN        = "UNCERTAIN"
 
 
 # ---------------------------------------------------------------------------
@@ -190,6 +169,8 @@ class FrameProcessor:
                 "Run: python cv/models/download_pose_model.py"
             )
 
+        self._reliability_tracker = PresenceReliabilityTracker()
+
         log.debug("FrameProcessor initialised (scale=%.2f).", scale)
 
     # ------------------------------------------------------------------
@@ -253,7 +234,7 @@ class FrameProcessor:
         screen_facing_state = self._estimate_screen_facing(face_result)
 
         # Step 4 — (future) person presence, posture, etc.
-        presence_result = self._detect_person_presence(face_result)
+        presence_result = self._reliability_tracker.process(face_result)
 
         cv_res = self._build_cv_result(
             face_result,
@@ -283,22 +264,6 @@ class FrameProcessor:
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
-
-    def _detect_person_presence(self, face_result: FaceDetectionResult) -> PresenceResult:
-        """
-        Map a positive face detection to PRESENT, even if some landmarks are
-        incomplete. Only successful inference with no face maps to AWAY.
-        """
-        if face_result.available and face_result.detected:
-            return PresenceResult(state=PersonState.PRESENT, detection_available=True)
-
-        if (
-            face_result.available
-            and face_result.state == FaceDetectionState.NOT_DETECTED
-        ):
-            return PresenceResult(state=PersonState.AWAY, detection_available=True)
-
-        return PresenceResult(state=PersonState.UNKNOWN, detection_available=False)
 
     @staticmethod
     def _estimate_screen_facing(face_result: FaceDetectionResult) -> str:

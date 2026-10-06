@@ -13,6 +13,25 @@ class CVState:
     UNKNOWN = "UNKNOWN"
     INVALID_FRAME = "INVALID_FRAME"
 
+class PersonState:
+    """Observable person-presence states."""
+    PRESENT = "PRESENT"
+    AWAY    = "AWAY"
+    UNKNOWN = "UNKNOWN"
+
+class ScreenFacingState:
+    """Observable screen-facing states."""
+    SCREEN_FACING = "SCREEN_FACING"
+    LOOKING_AWAY  = "LOOKING_AWAY"
+    UNKNOWN       = "UNKNOWN"
+
+class PostureState:
+    """Observable posture states."""
+    GOOD_POSTURE     = "GOOD_POSTURE"
+    SLOUCHED_POSTURE = "SLOUCHED_POSTURE"
+    UNKNOWN          = "UNKNOWN"
+    UNCERTAIN        = "UNCERTAIN"
+
 
 @dataclass
 class PresenceResult:
