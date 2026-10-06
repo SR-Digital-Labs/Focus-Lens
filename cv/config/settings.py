@@ -67,6 +67,23 @@ FACE_PRESENCE_CONFIDENCE: float = 0.5
 # FocusLens tracks the primary user only, so 1 is correct.
 MAX_FACES: int = 1
 
+# MediaPipe Pose Landmarker (local, on-device inference).
+POSE_LANDMARKER_MODEL_PATH: str = _os.path.join(
+    _os.path.dirname(__file__),
+    "..",
+    "models",
+    "pose_landmarker_lite.task",
+)
+POSE_DETECTION_CONFIDENCE: float = 0.5
+POSE_PRESENCE_CONFIDENCE: float = 0.5
+MAX_POSES: int = 1
+
+# Day 10 screen-facing heuristic thresholds. These are initial geometric
+# cutoffs, not calibrated confidence values; tune with representative users.
+SCREEN_FACING_MAX_YAW_RATIO: float = 0.20
+SCREEN_FACING_MIN_NOSE_VERTICAL_RATIO: float = 0.20
+SCREEN_FACING_MAX_NOSE_VERTICAL_RATIO: float = 0.80
+
 # ---------------------------------------------------------------------------
 # Development / debug settings
 # ---------------------------------------------------------------------------

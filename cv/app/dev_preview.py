@@ -194,21 +194,36 @@ class DevPreview:
         """
         fps = self._estimate_fps()
         face = getattr(frame_result, "face_detection", None)
+        pose = getattr(frame_result, "pose_detection", None)
 
         # Build the face info string.
         if face is None:
             face_info = "Unavailable"
-        elif not face.available:
+        elif face.state == "UNAVAILABLE" or not face.available:
             face_info = "Model not loaded"
+        elif face.state == "UNCERTAIN":
+            face_info = f"Uncertain  ({len(face.landmarks)} pts)"
+        elif face.state == "UNKNOWN":
+            face_info = "Unknown"
         elif face.detected:
             face_info = f"YES  ({len(face.landmarks)} pts)"
         else:
             face_info = "No face"
 
+        if pose is None:
+            pose_info = "Unavailable"
+        elif not pose.available:
+            pose_info = "Model not loaded"
+        elif pose.detected:
+            pose_info = f"{pose.state}  ({len(pose.landmarks)} pts)"
+        else:
+            pose_info = pose.state
+
         lines = [
             f"FPS:     {fps:.1f}",
             f"Frame:   {frame_result.frame_index}",
             f"Face:    {face_info}",
+            f"Pose:    {pose_info}",
             f"Person:  {frame_result.person_state}",
             f"Facing:  {frame_result.screen_facing_state}",
             f"Posture: {frame_result.posture_state}",
@@ -221,7 +236,11 @@ class DevPreview:
 
             # Choose colour for the Face line to make status obvious.
             if i == 2 and face is not None:
-                color = _FACE_DETECTED_COLOR if face.detected else _FACE_NOT_FOUND_COLOR
+                color = (
+                    _FACE_DETECTED_COLOR
+                    if face.state == "DETECTED"
+                    else _FACE_NOT_FOUND_COLOR
+                )
             else:
                 color = OVERLAY_TEXT_COLOR
 

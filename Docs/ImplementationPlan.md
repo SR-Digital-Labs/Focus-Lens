@@ -255,7 +255,15 @@ MediaPipe successfully processes local webcam frames.
 
 ### Ragavi
 
-* Create normalized CV output structure.
+* Learn how facial landmark `x`, `y`, and `z` coordinates are represented.
+* Relate normalized landmark coordinates to the input image dimensions.
+* Observe landmark changes as the face moves, approaches/recedes, or rotates.
+* Identify how landmark indices map to facial regions.
+* Study detected, not-detected, unavailable, incomplete, and uncertain results.
+* Preserve `UNKNOWN` when the input cannot support a reliable signal; do not
+   infer that a missing detection means the user is away.
+* Prepare a normalized CV output structure for future screen-facing analysis,
+   without implementing that estimator yet.
 
 Example:
 
@@ -272,6 +280,71 @@ Example:
 ### Deliverable
 
 Standardized CV activity signal.
+
+### Landmark Learning Notes
+
+The Face Landmarker returns an ordered list of 478 landmarks for the primary
+face. Each point has normalized `x` and `y` coordinates, relative `z` depth,
+and visibility information. The list uses the MediaPipe face-mesh index order;
+indices refer to points around the eyes, nose, lips, cheeks, and face contour.
+The current result exposes positions rather than semantic names, so an index
+must be interpreted using the canonical face-mesh index map.
+
+For an image with width `W` and height `H`, convert a point to pixels with:
+
+```text
+pixel_x = x * W
+pixel_y = y * H
+```
+
+The image origin is the top-left. Moving right increases `x`; moving down
+increases `y`. When the face translates right or down in the image, its
+landmarks generally move in those coordinate directions; moving up or left
+changes them the other way. Moving closer generally makes the face occupy a
+larger fraction of the image, while moving farther away makes it smaller. The
+face center can remain at similar normalized `x` and `y` while its size changes.
+The `z` value is relative depth (smaller values are closer), not a measured
+distance in centimeters, so it is not a standalone distance sensor.
+
+Head rotation changes the geometry between landmarks. Turning left or right
+changes the nose's position relative to the eyes and can make the far side of
+the face appear narrower or less visible. Looking up/down changes vertical
+relationships; tilting the head rotates the eye and mouth lines in the image.
+An orientation estimate therefore needs several stable landmarks and should
+account for visibility, rather than thresholding one coordinate.
+
+The webcam preview may mirror the image for user convenience. Landmark `x`
+always describes the image actually passed to MediaPipe, so verify whether
+that input was mirrored before assigning visual left/right labels.
+
+The current result contract distinguishes these cases:
+
+| State | Meaning | Presence interpretation |
+| ----- | ------- | ------------------------ |
+| `DETECTED` | Inference returned a face and the expected landmark set. | `PRESENT` |
+| `NOT_DETECTED` | Inference completed successfully and found no face. | `AWAY` |
+| `UNAVAILABLE` | The model or required runtime is unavailable. | `UNKNOWN` |
+| `UNCERTAIN` | Inference failed for a frame or landmark data is incomplete. | `UNKNOWN` |
+| `UNKNOWN` | No reliable state is available yet. | `UNKNOWN` |
+
+```text
+Webcam
+   ↓
+OpenCV BGR frame
+   ↓  convert to RGB
+MediaPipe Face Landmarker (local)
+   ↓
+FaceDetectionResult + normalized landmarks
+   ↓
+Detection state (including UNKNOWN / UNCERTAIN)
+   ↓
+Future screen-facing analysis
+```
+
+The frame is used for local inference and is not saved or transmitted. The
+future screen-facing stage may use stable geometric relationships among the
+eyes, nose, mouth, and face contour; it is intentionally not implemented in
+this learning task.
 
 ---
 
@@ -332,7 +405,10 @@ Unknown
 
 ### Ragavi
 
-* Implement basic screen-facing estimation using available landmarks.
+* Estimate approximate head direction from face landmarks.
+* Return `SCREEN_FACING`, `LOOKING_AWAY`, or `UNKNOWN`.
+* Keep incomplete, unavailable, and degenerate landmark geometry as `UNKNOWN`.
+* Treat the result as an approximate visual signal, not proof of attention.
 
 ### Deliverable
 
@@ -341,6 +417,10 @@ Screen Facing
 Looking Away
 Unknown
 ```
+
+The initial estimator uses nose position relative to the eye line and mouth
+line. Its geometric thresholds are configurable starting points, not calibrated
+confidence values. State smoothing and debouncing are reserved for Day 11.
 
 ---
 

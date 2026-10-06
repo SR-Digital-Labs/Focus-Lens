@@ -29,6 +29,7 @@ a ``FrameResult``. The raw frame is NOT stored, logged, or transmitted.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from math import isfinite
 from typing import Any, Optional
 
 import cv2
@@ -39,8 +40,24 @@ from config import (
     FACE_DETECTION_CONFIDENCE,
     FACE_PRESENCE_CONFIDENCE,
     MAX_FACES,
+    POSE_LANDMARKER_MODEL_PATH,
+    POSE_DETECTION_CONFIDENCE,
+    POSE_PRESENCE_CONFIDENCE,
+    MAX_POSES,
+    SCREEN_FACING_MAX_YAW_RATIO,
+    SCREEN_FACING_MIN_NOSE_VERTICAL_RATIO,
+    SCREEN_FACING_MAX_NOSE_VERTICAL_RATIO,
 )
-from services.face_landmarker import FaceLandmarkerService, FaceDetectionResult
+from services.face_landmarker import (
+    FaceDetectionResult,
+    FaceDetectionState,
+    FaceLandmarkerService,
+)
+from services.pose_landmarker import (
+    PoseDetectionResult,
+    PoseDetectionState,
+    PoseLandmarkerService,
+)
 from utils.logger import get_logger
 from models.cv_results import CVResult, CVState, PresenceResult
 
@@ -73,6 +90,7 @@ class PostureState:
     GOOD_POSTURE     = "GOOD_POSTURE"
     SLOUCHED_POSTURE = "SLOUCHED_POSTURE"
     UNKNOWN          = "UNKNOWN"
+    UNCERTAIN        = "UNCERTAIN"
 
 
 # ---------------------------------------------------------------------------
@@ -96,8 +114,12 @@ class FrameResult:
         face_detection:     Result from the MediaPipe Face Landmarker.
                             Check ``face_detection.detected`` before using
                             landmark data.
-        person_state:       Person-presence detection result (Day 9+).
-        screen_facing_state: Screen-facing estimation result (Day 10+).
+        pose_detection:    Raw MediaPipe pose result. Its normalized points
+                    are detector output, not a posture classification.
+        cv_result:          Plain application-facing data, separate from the
+                    detector-specific result objects.
+        person_state:       Person-presence detection result (Day 9).
+        screen_facing_state: Screen-facing estimation result (Day 10).
         posture_state:      Posture classification result (Day 13+).
         extra:              Open-ended dict for future signals.
     """
@@ -105,6 +127,7 @@ class FrameResult:
     frame_index: int
     processed_frame: Any  # numpy.ndarray
     face_detection: Optional[FaceDetectionResult] = None
+    pose_detection: Optional[PoseDetectionResult] = None
     cv_result: Optional[CVResult] = None
     person_state: str = PersonState.UNKNOWN
     presence_result: Optional[PresenceResult] = None
@@ -122,7 +145,7 @@ class FrameProcessor:
     """
     Applies CV operations to a single :class:`~services.camera_service.CameraFrame`.
 
-    Day 05: Holds and drives a :class:`~services.face_landmarker.FaceLandmarkerService`.
+    Holds and drives local face and pose landmark services.
 
     The processor itself is stateless across frames by design — each call to
     ``process()`` is independent. State that must persist across frames
@@ -154,6 +177,19 @@ class FrameProcessor:
                 "Run:  python cv/models/download_model.py"
             )
 
+        self._pose_landmarker = PoseLandmarkerService(
+            model_path=POSE_LANDMARKER_MODEL_PATH,
+            min_detection_confidence=POSE_DETECTION_CONFIDENCE,
+            min_presence_confidence=POSE_PRESENCE_CONFIDENCE,
+            max_poses=MAX_POSES,
+        )
+        if not self._pose_landmarker.initialise():
+            log.warning(
+                "PoseLandmarkerService did not initialise. "
+                "Pose detection will be unavailable until the model is downloaded. "
+                "Run: python cv/models/download_pose_model.py"
+            )
+
         log.debug("FrameProcessor initialised (scale=%.2f).", scale)
 
     # ------------------------------------------------------------------
@@ -168,9 +204,8 @@ class FrameProcessor:
             frame: A :class:`~services.camera_service.CameraFrame` instance.
 
         Returns:
-            :class:`FrameResult` with ``face_detection`` populated from
-            MediaPipe (Day 05). Other detection fields remain UNKNOWN
-            until their respective phases are implemented.
+            :class:`FrameResult` with raw face and pose landmark results.
+            Posture remains UNKNOWN until a posture estimator is implemented.
         """
         # Error handling: Invalid or empty frame
         if frame is None or frame.data is None or frame.data.size == 0:
@@ -200,41 +235,50 @@ class FrameProcessor:
             face_result: FaceDetectionResult = self._detect_face(frame)
         except Exception as e:
             log.error("Error during face detection: %s", e)
-            face_result = FaceDetectionResult(detected=False, available=False)
+            face_result = FaceDetectionResult(
+                detected=False,
+                available=False,
+                state=FaceDetectionState.UNCERTAIN,
+            )
 
-        # Build reusable CVResult
-        cv_res = CVResult(status=CVState.DETECTED if face_result.detected else CVState.NOT_DETECTED)
-        cv_res.face_detected = face_result.detected
-        if face_result.detected and face_result.landmarks:
-            # Optionally convert MediaPipe landmarks to a serializable dict list
-            # We keep it simple for now as requested.
-            cv_res.face_landmarks = [{"x": lm.x, "y": lm.y, "z": lm.z} for lm in face_result.landmarks]
-        elif not face_result.available:
-            cv_res.status = CVState.UNAVAILABLE
-            cv_res.error_message = "MediaPipe landmarker unavailable"
+        try:
+            pose_result: PoseDetectionResult = self._pose_landmarker.detect(frame)
+        except Exception as e:
+            log.error("Error during pose detection: %s", e)
+            pose_result = PoseDetectionResult(
+                available=True,
+                state=PoseDetectionState.UNCERTAIN,
+            )
 
-        # Step 3 — (future) screen-facing estimation
-        # screen_facing_state = self._estimate_screen_facing(face_result)
+        screen_facing_state = self._estimate_screen_facing(face_result)
 
         # Step 4 — (future) person presence, posture, etc.
         presence_result = self._detect_person_presence(face_result)
-        
+
+        cv_res = self._build_cv_result(
+            face_result,
+            pose_result,
+            presence_result,
+            screen_facing_state,
+        )
         log.info(f"Person Presence: {presence_result.state}")
 
         return FrameResult(
             frame_index=frame.frame_index,
             processed_frame=image,
             face_detection=face_result,
+            pose_detection=pose_result,
             cv_result=cv_res,
             person_state=presence_result.state,
             presence_result=presence_result,
-            screen_facing_state=ScreenFacingState.UNKNOWN,
+            screen_facing_state=screen_facing_state,
             posture_state=PostureState.UNKNOWN,
         )
 
     def close(self) -> None:
         """Release MediaPipe model resources."""
         self._face_landmarker.close()
+        self._pose_landmarker.close()
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -242,15 +286,131 @@ class FrameProcessor:
 
     def _detect_person_presence(self, face_result: FaceDetectionResult) -> PresenceResult:
         """
-        Determine if a person is present based on face detection results.
+        Map a positive face detection to PRESENT, even if some landmarks are
+        incomplete. Only successful inference with no face maps to AWAY.
         """
-        if not face_result.available:
-            return PresenceResult(state=PersonState.UNKNOWN, detection_available=False)
-            
-        if face_result.detected:
+        if face_result.available and face_result.detected:
             return PresenceResult(state=PersonState.PRESENT, detection_available=True)
-            
-        return PresenceResult(state=PersonState.AWAY, detection_available=True)
+
+        if (
+            face_result.available
+            and face_result.state == FaceDetectionState.NOT_DETECTED
+        ):
+            return PresenceResult(state=PersonState.AWAY, detection_available=True)
+
+        return PresenceResult(state=PersonState.UNKNOWN, detection_available=False)
+
+    @staticmethod
+    def _estimate_screen_facing(face_result: FaceDetectionResult) -> str:
+        """Estimate frontal orientation from normalized face landmarks.
+
+        This is a basic 2D heuristic, not proof of attention or a calibrated
+        head-pose model. Missing or unreliable geometry remains UNKNOWN.
+        """
+        required_indices = (1, 33, 61, 263, 291)
+        if (
+            not face_result.available
+            or face_result.state != FaceDetectionState.DETECTED
+            or not face_result.landmarks_complete
+            or len(face_result.landmarks) <= max(required_indices)
+        ):
+            return ScreenFacingState.UNKNOWN
+
+        nose = face_result.landmarks[1]
+        left_eye = face_result.landmarks[33]
+        right_eye = face_result.landmarks[263]
+        left_mouth = face_result.landmarks[61]
+        right_mouth = face_result.landmarks[291]
+        points = (nose, left_eye, right_eye, left_mouth, right_mouth)
+        if not all(isfinite(point.x) and isfinite(point.y) for point in points):
+            return ScreenFacingState.UNKNOWN
+
+        eye_span = abs(right_eye.x - left_eye.x)
+        eye_line_y = (left_eye.y + right_eye.y) / 2
+        mouth_line_y = (left_mouth.y + right_mouth.y) / 2
+        vertical_span = mouth_line_y - eye_line_y
+        if eye_span <= 1e-6 or vertical_span <= 1e-6:
+            return ScreenFacingState.UNKNOWN
+
+        eye_midpoint_x = (left_eye.x + right_eye.x) / 2
+        yaw_ratio = abs(nose.x - eye_midpoint_x) / eye_span
+        nose_vertical_ratio = (nose.y - eye_line_y) / vertical_span
+        if not isfinite(yaw_ratio) or not isfinite(nose_vertical_ratio):
+            return ScreenFacingState.UNKNOWN
+
+        if (
+            yaw_ratio > SCREEN_FACING_MAX_YAW_RATIO
+            or nose_vertical_ratio < SCREEN_FACING_MIN_NOSE_VERTICAL_RATIO
+            or nose_vertical_ratio > SCREEN_FACING_MAX_NOSE_VERTICAL_RATIO
+        ):
+            return ScreenFacingState.LOOKING_AWAY
+
+        return ScreenFacingState.SCREEN_FACING
+
+    @staticmethod
+    def _build_cv_result(
+        face_result: FaceDetectionResult,
+        pose_result: PoseDetectionResult,
+        presence_result: PresenceResult,
+        screen_facing_state: str = ScreenFacingState.UNKNOWN,
+    ) -> CVResult:
+        """Adapt detector-specific outputs to the application data contract."""
+        face_detected: Optional[bool] = None
+        if face_result.state in (
+            FaceDetectionState.DETECTED,
+            FaceDetectionState.NOT_DETECTED,
+        ):
+            face_detected = face_result.detected
+        elif face_result.face_count > 0:
+            face_detected = True
+
+        landmarks = None
+        if face_result.landmarks:
+            landmarks = [
+                {
+                    "index": index,
+                    "x": landmark.x,
+                    "y": landmark.y,
+                    "z": landmark.z,
+                    "visibility": landmark.visibility,
+                }
+                for index, landmark in enumerate(face_result.landmarks)
+            ]
+
+        pose_detected: Optional[bool] = None
+        if pose_result.state in (
+            PoseDetectionState.DETECTED,
+            PoseDetectionState.NOT_DETECTED,
+        ):
+            pose_detected = pose_result.detected
+
+        error_messages = []
+        if face_result.state == FaceDetectionState.UNAVAILABLE:
+            error_messages.append("Face Landmarker unavailable")
+        elif face_result.state == FaceDetectionState.UNCERTAIN:
+            error_messages.append("Face detection or landmark output is uncertain")
+        if pose_result.state == PoseDetectionState.UNAVAILABLE:
+            error_messages.append("Pose Landmarker unavailable")
+        elif pose_result.state == PoseDetectionState.UNCERTAIN:
+            error_messages.append("Pose detection is uncertain")
+
+        return CVResult(
+            timestamp=face_result.timestamp_ms / 1_000,
+            status=face_result.state,
+            face_detected=face_detected,
+            landmarks=landmarks,
+            pose_detection_state=pose_result.state,
+            pose_detected=pose_detected,
+            pose_landmarks=(
+                [landmark.as_dict() for landmark in pose_result.landmarks]
+                if pose_detected
+                else None
+            ),
+            person_presence=presence_result.state,
+            screen_facing=screen_facing_state,
+            posture=PostureState.UNKNOWN,
+            error_message="; ".join(error_messages) or None,
+        )
 
     def _detect_face(self, frame: Any) -> FaceDetectionResult:
         """

@@ -47,19 +47,19 @@ const MainLayout: React.FC = () => {
           <span>FocusLens</span>
         </div>
         <nav className="sidebar-nav">
-          <NavLink to="/" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+          <NavLink to="/" aria-label="Dashboard" title="Dashboard" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
             <LayoutDashboard size={20} /> Dashboard
           </NavLink>
-          <NavLink to="/session" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+          <NavLink to="/session" aria-label="Focus Session" title="Focus Session" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
             <Target size={20} /> Focus Session
           </NavLink>
-          <NavLink to="/history" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+          <NavLink to="/history" aria-label="Session History" title="Session History" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
             <History size={20} /> Session History
           </NavLink>
-          <NavLink to="/analytics" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+          <NavLink to="/analytics" aria-label="Analytics" title="Analytics" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
             <BarChart3 size={20} /> Analytics
           </NavLink>
-          <NavLink to="/settings" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+          <NavLink to="/settings" aria-label="Settings" title="Settings" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
             <Settings size={20} /> Settings
           </NavLink>
         </nav>

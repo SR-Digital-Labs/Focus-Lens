@@ -9,7 +9,7 @@ This module owns the entire MediaPipe Face Landmarker lifecycle:
 
     initialise  →  convert frame  →  detect  →  return result  →  close
 
-It is the ONLY place in the codebase that imports or calls MediaPipe.
+It is one of the isolated modules that imports or calls MediaPipe.
 All other modules receive a plain ``FaceDetectionResult`` dataclass, so
 they have no dependency on MediaPipe internals.
 
@@ -47,6 +47,19 @@ from typing import List
 from utils.logger import get_logger
 
 log = get_logger(__name__)
+
+FACE_LANDMARK_COUNT = 478
+
+
+class FaceDetectionState:
+    """States for face detection and the quality of its landmark output."""
+
+    DETECTED = "DETECTED"
+    NOT_DETECTED = "NOT_DETECTED"
+    UNAVAILABLE = "UNAVAILABLE"
+    UNCERTAIN = "UNCERTAIN"
+    UNKNOWN = "UNKNOWN"
+
 
 # ---------------------------------------------------------------------------
 # Result type
@@ -91,13 +104,17 @@ class FaceDetectionResult:
                               canonical face model.
         face_count:           Number of faces the model returned (0 or 1 for
                               FocusLens because MAX_FACES = 1).
-        detection_confidence: Confidence score returned for the primary face
-                              (0.0 - 1.0). 0.0 when no face was found.
+        detection_confidence: Placeholder quality signal: 1.0 when the full
+                      expected landmark set is present, otherwise 0.0.
+                      This is not a calibrated model confidence score.
         timestamp_ms:         Wall-clock timestamp (ms since epoch) at the
                               moment this result was produced.
-        available:            True when the model is loaded and inference
-                              completed without error. False if MediaPipe is
-                              unavailable or threw an exception.
+        available:            True when the model is loaded. A frame-level
+                      inference error can still produce UNCERTAIN.
+                      False when the model/runtime is unavailable.
+        state:                Explicit detection state. Incomplete landmark
+                      output and per-frame inference errors are UNCERTAIN.
+        landmarks_complete:   True when the expected 478 landmarks are present.
     """
 
     detected: bool = False
@@ -106,6 +123,8 @@ class FaceDetectionResult:
     detection_confidence: float = 0.0
     timestamp_ms: float = field(default_factory=lambda: time.time() * 1_000)
     available: bool = True  # set to False if the model failed to load
+    state: str = FaceDetectionState.UNKNOWN
+    landmarks_complete: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -226,12 +245,11 @@ class FaceLandmarkerService:
 
         Returns:
             :class:`FaceDetectionResult` — always returns a valid object.
-            When no face is detected, or when the service is unavailable,
-            ``detected`` will be ``False`` and ``landmarks`` will be empty.
+            Check ``state`` before interpreting ``detected``: an unavailable
+            or uncertain result is not proof that the user is away.
 
-        The caller must NEVER assume a face is present without checking
-        ``result.detected``. The pipeline handles the no-face state
-        gracefully by treating it as an uncertain / unknown signal.
+        A successful inference with no face returns NOT_DETECTED. A model
+        error or incomplete landmark set returns UNCERTAIN instead.
         """
         timestamp_ms = time.time() * 1_000
 
@@ -241,6 +259,7 @@ class FaceLandmarkerService:
                 detected=False,
                 available=False,
                 timestamp_ms=timestamp_ms,
+                state=FaceDetectionState.UNAVAILABLE,
             )
 
         try:
@@ -251,11 +270,12 @@ class FaceLandmarkerService:
         except Exception as exc:  # pylint: disable=broad-except
             # Log the error but do NOT crash the pipeline — one bad frame
             # should not kill the session.
-            log.warning("Face detection error (returning empty result): %s", exc)
+            log.warning("Face detection error (result is uncertain): %s", exc)
             return FaceDetectionResult(
                 detected=False,
                 available=True,  # service is still up; this was a one-frame blip
                 timestamp_ms=timestamp_ms,
+                state=FaceDetectionState.UNCERTAIN,
             )
 
     def close(self) -> None:
@@ -325,6 +345,7 @@ class FaceLandmarkerService:
                 detection_confidence=0.0,
                 timestamp_ms=timestamp_ms,
                 available=True,
+                state=FaceDetectionState.NOT_DETECTED,
             )
 
         # Track the primary face (index 0).
@@ -341,17 +362,21 @@ class FaceLandmarkerService:
             for lm in primary_face_landmarks
         ]
 
-        # MediaPipe IMAGE mode does not expose a per-face confidence score
-        # directly on the result object, so landmark presence is used as
-        # the confidence signal (1.0 = confident detection).
-        # Day 10 will use transformation matrices for orientation analysis.
-        confidence = 1.0 if landmarks else 0.0
+        landmarks_complete = len(landmarks) == FACE_LANDMARK_COUNT
+        state = (
+            FaceDetectionState.DETECTED
+            if landmarks_complete
+            else FaceDetectionState.UNCERTAIN
+        )
+        confidence = 1.0 if landmarks_complete else 0.0
 
         return FaceDetectionResult(
-            detected=True,
+            detected=face_count > 0,
             landmarks=landmarks,
             face_count=face_count,
             detection_confidence=confidence,
             timestamp_ms=timestamp_ms,
             available=True,
+            state=state,
+            landmarks_complete=landmarks_complete,
         )
