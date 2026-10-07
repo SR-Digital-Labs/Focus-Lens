@@ -8,8 +8,8 @@ from services.face_landmarker import (
     FaceDetectionState,
     FaceLandmark,
 )
-from services.frame_processor import FrameProcessor
 from services.presence_reliability import PresenceReliabilityTracker
+from services.screen_facing_estimator import ScreenFacingEstimator
 from services.screen_facing_reliability import ScreenFacingReliabilityTracker
 
 
@@ -74,22 +74,25 @@ class ScreenFacingReliabilityTrackerTests(unittest.TestCase):
 
 
 class ScreenFacingConfidenceTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.estimator = ScreenFacingEstimator()
+
     def test_frontal_geometry_has_high_confidence(self) -> None:
-        state, confidence = FrameProcessor._estimate_screen_facing(
+        state, confidence = self.estimator.estimate_with_confidence(
             self._face_result(nose_x=0.5)
         )
         self.assertEqual(state, ScreenFacingState.SCREEN_FACING)
         self.assertAlmostEqual(confidence, 1.0)
 
     def test_geometry_near_a_decision_boundary_has_low_confidence(self) -> None:
-        state, confidence = FrameProcessor._estimate_screen_facing(
+        state, confidence = self.estimator.estimate_with_confidence(
             self._face_result(nose_x=0.538)
         )
         self.assertEqual(state, ScreenFacingState.SCREEN_FACING)
         self.assertLess(confidence, 0.15)
 
     def test_clear_head_turn_has_confident_looking_away_result(self) -> None:
-        state, confidence = FrameProcessor._estimate_screen_facing(
+        state, confidence = self.estimator.estimate_with_confidence(
             self._face_result(nose_x=0.56)
         )
         self.assertEqual(state, ScreenFacingState.LOOKING_AWAY)
@@ -99,13 +102,13 @@ class ScreenFacingConfidenceTests(unittest.TestCase):
         incomplete = self._face_result(nose_x=0.5)
         incomplete.landmarks_complete = False
         self.assertEqual(
-            FrameProcessor._estimate_screen_facing(incomplete),
+            self.estimator.estimate_with_confidence(incomplete),
             (ScreenFacingState.UNKNOWN, 0.0),
         )
 
         invalid = self._face_result(nose_x=float("nan"))
         self.assertEqual(
-            FrameProcessor._estimate_screen_facing(invalid),
+            self.estimator.estimate_with_confidence(invalid),
             (ScreenFacingState.UNKNOWN, 0.0),
         )
 

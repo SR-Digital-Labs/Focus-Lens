@@ -29,7 +29,6 @@ a ``FrameResult``. The raw frame is NOT stored, logged, or transmitted.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from math import isfinite
 from typing import Any, Optional
 
 import cv2
@@ -44,10 +43,6 @@ from config import (
     POSE_DETECTION_CONFIDENCE,
     POSE_PRESENCE_CONFIDENCE,
     MAX_POSES,
-    SCREEN_FACING_MIN_CONFIDENCE,
-    SCREEN_FACING_MAX_YAW_RATIO,
-    SCREEN_FACING_MIN_NOSE_VERTICAL_RATIO,
-    SCREEN_FACING_MAX_NOSE_VERTICAL_RATIO,
 )
 from services.face_landmarker import (
     FaceDetectionResult,
@@ -59,6 +54,7 @@ from services.pose_landmarker import (
     PoseDetectionState,
     PoseLandmarkerService,
 )
+from services.screen_facing_estimator import ScreenFacingEstimator
 from utils.logger import get_logger
 from models.cv_results import (
     CVResult,
@@ -174,6 +170,7 @@ class FrameProcessor:
 
         self._reliability_tracker = PresenceReliabilityTracker()
         self._screen_facing_tracker = ScreenFacingReliabilityTracker()
+        self._screen_facing_estimator = ScreenFacingEstimator()
 
         log.debug("FrameProcessor initialised (scale=%.2f).", scale)
 
@@ -236,7 +233,7 @@ class FrameProcessor:
             )
 
         raw_screen_facing_state, screen_facing_confidence = (
-            self._estimate_screen_facing(face_result)
+            self._screen_facing_estimator.estimate_with_confidence(face_result)
         )
         screen_facing_state = self._screen_facing_tracker.process(
             raw_screen_facing_state,
@@ -276,94 +273,6 @@ class FrameProcessor:
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
-
-    @staticmethod
-    def _estimate_screen_facing(
-        face_result: FaceDetectionResult,
-    ) -> tuple[str, float]:
-        """Estimate orientation and geometric confidence from face landmarks.
-
-        This is a basic 2D heuristic, not proof of attention or a calibrated
-        head-pose model. Confidence measures distance from heuristic
-        boundaries, scaled by the detector's landmark-completeness signal.
-        Missing or unreliable geometry remains UNKNOWN.
-        """
-        required_indices = (1, 33, 61, 263, 291)
-        if (
-            not face_result.available
-            or face_result.state != FaceDetectionState.DETECTED
-            or not face_result.landmarks_complete
-            or len(face_result.landmarks) <= max(required_indices)
-            or not isfinite(face_result.detection_confidence)
-            or not 0.0 <= face_result.detection_confidence <= 1.0
-            or face_result.detection_confidence < SCREEN_FACING_MIN_CONFIDENCE
-        ):
-            return ScreenFacingState.UNKNOWN, 0.0
-
-        nose = face_result.landmarks[1]
-        left_eye = face_result.landmarks[33]
-        right_eye = face_result.landmarks[263]
-        left_mouth = face_result.landmarks[61]
-        right_mouth = face_result.landmarks[291]
-        points = (nose, left_eye, right_eye, left_mouth, right_mouth)
-        if not all(isfinite(point.x) and isfinite(point.y) for point in points):
-            return ScreenFacingState.UNKNOWN, 0.0
-
-        eye_span = abs(right_eye.x - left_eye.x)
-        eye_line_y = (left_eye.y + right_eye.y) / 2
-        mouth_line_y = (left_mouth.y + right_mouth.y) / 2
-        vertical_span = mouth_line_y - eye_line_y
-        vertical_range = (
-            SCREEN_FACING_MAX_NOSE_VERTICAL_RATIO
-            - SCREEN_FACING_MIN_NOSE_VERTICAL_RATIO
-        )
-        if (
-            eye_span <= 1e-6
-            or vertical_span <= 1e-6
-            or SCREEN_FACING_MAX_YAW_RATIO <= 0
-            or vertical_range <= 0
-        ):
-            return ScreenFacingState.UNKNOWN, 0.0
-
-        eye_midpoint_x = (left_eye.x + right_eye.x) / 2
-        yaw_ratio = abs(nose.x - eye_midpoint_x) / eye_span
-        nose_vertical_ratio = (nose.y - eye_line_y) / vertical_span
-        if not isfinite(yaw_ratio) or not isfinite(nose_vertical_ratio):
-            return ScreenFacingState.UNKNOWN, 0.0
-
-        looking_away = (
-            yaw_ratio > SCREEN_FACING_MAX_YAW_RATIO
-            or nose_vertical_ratio < SCREEN_FACING_MIN_NOSE_VERTICAL_RATIO
-            or nose_vertical_ratio > SCREEN_FACING_MAX_NOSE_VERTICAL_RATIO
-        )
-        if looking_away:
-            half_vertical_range = vertical_range / 2
-            boundary_distance = max(
-                yaw_ratio / SCREEN_FACING_MAX_YAW_RATIO - 1,
-                (
-                    SCREEN_FACING_MIN_NOSE_VERTICAL_RATIO
-                    - nose_vertical_ratio
-                ) / half_vertical_range,
-                (
-                    nose_vertical_ratio
-                    - SCREEN_FACING_MAX_NOSE_VERTICAL_RATIO
-                ) / half_vertical_range,
-            )
-            state = ScreenFacingState.LOOKING_AWAY
-            geometric_confidence = min(1.0, boundary_distance)
-        else:
-            yaw_margin = 1.0 - yaw_ratio / SCREEN_FACING_MAX_YAW_RATIO
-            vertical_margin = min(
-                nose_vertical_ratio - SCREEN_FACING_MIN_NOSE_VERTICAL_RATIO,
-                SCREEN_FACING_MAX_NOSE_VERTICAL_RATIO - nose_vertical_ratio,
-            ) / (vertical_range / 2)
-            state = ScreenFacingState.SCREEN_FACING
-            geometric_confidence = min(1.0, yaw_margin, vertical_margin)
-
-        return (
-            state,
-            geometric_confidence * face_result.detection_confidence,
-        )
 
     @staticmethod
     def _build_cv_result(
