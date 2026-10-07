@@ -440,6 +440,14 @@ confidence values. State smoothing and debouncing are reserved for Day 11.
 
 More stable detection signals.
 
+Screen-facing confidence is based on how far the normalized landmark ratios
+are from the configured geometric decision boundaries, and is gated by the
+face landmarker completeness signal. Low-confidence or invalid geometry is
+treated as uncertain. Three consecutive confident frames are required to
+change a stable screen-facing state; brief uncertain streaks preserve the
+last state, while three consecutive uncertain frames return the state to
+`UNKNOWN`.
+
 ---
 
 ## Day 12 — Detection Integration

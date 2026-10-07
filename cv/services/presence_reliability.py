@@ -36,9 +36,15 @@ class PresenceReliabilityTracker:
         # Determine the raw state for this specific frame
         raw_state = PersonState.UNKNOWN
         if face_result.available:
-            if face_result.detected:
+            if (
+                face_result.state == FaceDetectionState.DETECTED
+                and face_result.detected
+            ):
                 raw_state = PersonState.PRESENT
-            elif face_result.state == FaceDetectionState.NOT_DETECTED:
+            elif (
+                face_result.state == FaceDetectionState.NOT_DETECTED
+                and not face_result.detected
+            ):
                 raw_state = PersonState.AWAY
 
         # Update consecutive counts based on raw state
