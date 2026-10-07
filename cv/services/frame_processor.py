@@ -44,9 +44,6 @@ from config import (
     POSE_DETECTION_CONFIDENCE,
     POSE_PRESENCE_CONFIDENCE,
     MAX_POSES,
-    SCREEN_FACING_MAX_YAW_RATIO,
-    SCREEN_FACING_MIN_NOSE_VERTICAL_RATIO,
-    SCREEN_FACING_MAX_NOSE_VERTICAL_RATIO,
 )
 from services.face_landmarker import (
     FaceDetectionResult,
@@ -58,6 +55,7 @@ from services.pose_landmarker import (
     PoseDetectionState,
     PoseLandmarkerService,
 )
+from services.screen_facing_estimator import ScreenFacingEstimator
 from utils.logger import get_logger
 from models.cv_results import (
     CVResult,
@@ -170,6 +168,7 @@ class FrameProcessor:
             )
 
         self._reliability_tracker = PresenceReliabilityTracker()
+        self._screen_facing_estimator = ScreenFacingEstimator()
 
         log.debug("FrameProcessor initialised (scale=%.2f).", scale)
 
@@ -231,7 +230,7 @@ class FrameProcessor:
                 state=PoseDetectionState.UNCERTAIN,
             )
 
-        screen_facing_state = self._estimate_screen_facing(face_result)
+        screen_facing_state = self._screen_facing_estimator.estimate(face_result)
 
         # Step 4 — (future) person presence, posture, etc.
         presence_result = self._reliability_tracker.process(face_result)
@@ -265,52 +264,7 @@ class FrameProcessor:
     # Private helpers
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _estimate_screen_facing(face_result: FaceDetectionResult) -> str:
-        """Estimate frontal orientation from normalized face landmarks.
 
-        This is a basic 2D heuristic, not proof of attention or a calibrated
-        head-pose model. Missing or unreliable geometry remains UNKNOWN.
-        """
-        required_indices = (1, 33, 61, 263, 291)
-        if (
-            not face_result.available
-            or face_result.state != FaceDetectionState.DETECTED
-            or not face_result.landmarks_complete
-            or len(face_result.landmarks) <= max(required_indices)
-        ):
-            return ScreenFacingState.UNKNOWN
-
-        nose = face_result.landmarks[1]
-        left_eye = face_result.landmarks[33]
-        right_eye = face_result.landmarks[263]
-        left_mouth = face_result.landmarks[61]
-        right_mouth = face_result.landmarks[291]
-        points = (nose, left_eye, right_eye, left_mouth, right_mouth)
-        if not all(isfinite(point.x) and isfinite(point.y) for point in points):
-            return ScreenFacingState.UNKNOWN
-
-        eye_span = abs(right_eye.x - left_eye.x)
-        eye_line_y = (left_eye.y + right_eye.y) / 2
-        mouth_line_y = (left_mouth.y + right_mouth.y) / 2
-        vertical_span = mouth_line_y - eye_line_y
-        if eye_span <= 1e-6 or vertical_span <= 1e-6:
-            return ScreenFacingState.UNKNOWN
-
-        eye_midpoint_x = (left_eye.x + right_eye.x) / 2
-        yaw_ratio = abs(nose.x - eye_midpoint_x) / eye_span
-        nose_vertical_ratio = (nose.y - eye_line_y) / vertical_span
-        if not isfinite(yaw_ratio) or not isfinite(nose_vertical_ratio):
-            return ScreenFacingState.UNKNOWN
-
-        if (
-            yaw_ratio > SCREEN_FACING_MAX_YAW_RATIO
-            or nose_vertical_ratio < SCREEN_FACING_MIN_NOSE_VERTICAL_RATIO
-            or nose_vertical_ratio > SCREEN_FACING_MAX_NOSE_VERTICAL_RATIO
-        ):
-            return ScreenFacingState.LOOKING_AWAY
-
-        return ScreenFacingState.SCREEN_FACING
 
     @staticmethod
     def _build_cv_result(
