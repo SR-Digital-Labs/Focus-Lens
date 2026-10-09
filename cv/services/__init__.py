@@ -13,6 +13,10 @@ from .pose_landmarker import (
     PoseDetectionState,
     PoseLandmark,
 )
+from .posture_landmark_extractor import (
+    PostureLandmarkExtractor,
+    PostureLandmarks,
+)
 
 __all__ = [
     # Camera
@@ -35,4 +39,7 @@ __all__ = [
     "PoseDetectionResult",
     "PoseDetectionState",
     "PoseLandmark",
+    # Posture Landmark Extractor (Day 13)
+    "PostureLandmarkExtractor",
+    "PostureLandmarks",
 ]

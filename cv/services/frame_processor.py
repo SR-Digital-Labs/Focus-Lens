@@ -55,6 +55,7 @@ from services.pose_landmarker import (
     PoseLandmarkerService,
 )
 from services.screen_facing_estimator import ScreenFacingEstimator
+from services.posture_landmark_extractor import PostureLandmarkExtractor
 from utils.logger import get_logger
 from models.cv_results import (
     CVResult,
@@ -171,6 +172,9 @@ class FrameProcessor:
         self._reliability_tracker = PresenceReliabilityTracker()
         self._screen_facing_tracker = ScreenFacingReliabilityTracker()
         self._screen_facing_estimator = ScreenFacingEstimator()
+        # Day 13: extracts and validates upper-body landmarks for posture.
+        # Classification is added in Day 14; until then posture_state stays UNKNOWN.
+        self._posture_extractor = PostureLandmarkExtractor()
 
         log.debug("FrameProcessor initialised (scale=%.2f).", scale)
 
@@ -240,8 +244,15 @@ class FrameProcessor:
             screen_facing_confidence,
         )
 
-        # Step 4 — (future) person presence, posture, etc.
+        # Step 4 — person presence
         presence_result = self._reliability_tracker.process(face_result)
+
+        # Step 5 — Day 13: extract upper-body pose landmarks for posture.
+        # The extractor validates landmarks and returns availability info.
+        # Actual posture classification (GOOD / SLOUCHED) is added in Day 14;
+        # until then posture_state remains UNKNOWN.
+        posture_landmarks = self._posture_extractor.extract(pose_result)
+        posture_state = posture_landmarks.extraction_state  # UNKNOWN for now
 
         cv_res = self._build_cv_result(
             face_result,
@@ -249,8 +260,14 @@ class FrameProcessor:
             presence_result,
             screen_facing_state,
             screen_facing_confidence,
+            posture_state,
         )
-        log.info(f"Person Presence: {presence_result.state}")
+        log.info(
+            "Person Presence: %s | Screen Facing: %s | Posture shoulders_valid: %s",
+            presence_result.state,
+            screen_facing_state,
+            posture_landmarks.shoulders_valid,
+        )
 
         return FrameResult(
             frame_index=frame.frame_index,
@@ -262,7 +279,7 @@ class FrameProcessor:
             presence_result=presence_result,
             screen_facing_state=screen_facing_state,
             screen_facing_confidence=screen_facing_confidence,
-            posture_state=PostureState.UNKNOWN,
+            posture_state=posture_state,
         )
 
     def close(self) -> None:
@@ -281,6 +298,7 @@ class FrameProcessor:
         presence_result: PresenceResult,
         screen_facing_state: str = ScreenFacingState.UNKNOWN,
         screen_facing_confidence: float = 0.0,
+        posture_state: str = PostureState.UNKNOWN,
     ) -> CVResult:
         """Adapt detector-specific outputs to the application data contract."""
         face_detected: Optional[bool] = None
@@ -337,7 +355,7 @@ class FrameProcessor:
             person_presence=presence_result.state,
             screen_facing=screen_facing_state,
             confidence=screen_facing_confidence,
-            posture=PostureState.UNKNOWN,
+            posture=posture_state,
             error_message="; ".join(error_messages) or None,
         )
 
