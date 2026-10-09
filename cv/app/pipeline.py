@@ -69,6 +69,10 @@ class CVPipeline:
         self._camera = CameraService()
         self._processor = FrameProcessor()
         self._running = False
+        
+        # Track application state changes across frames
+        from services.activity_signal_aggregator import ActivitySignalAggregator
+        self._aggregator = ActivitySignalAggregator()
 
         # DevPreview is imported lazily so the module can be used even
         # if an OpenCV GUI is not available (e.g. headless CI).
@@ -168,6 +172,14 @@ class CVPipeline:
 
             # --- Process ---
             frame_result = self._processor.process(camera_frame)
+
+            # --- Aggregation ---
+            # Forward the frame result to the state aggregator.
+            # In Phase 7, this 'signal' will be sent to the Tauri frontend.
+            signal = self._aggregator.update(frame_result)
+            if signal:
+                # E.g., send via IPC, print as JSON to stdout, etc.
+                pass
 
             # --- Preview ---
             if self._preview is not None:
