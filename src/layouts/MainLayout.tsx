@@ -3,13 +3,21 @@ import { Outlet, NavLink, useLocation } from 'react-router-dom';
 import { LayoutDashboard, Target, History, BarChart3, Settings } from 'lucide-react';
 import type { CameraStatus } from '../services/contracts';
 import { cameraCaptureService } from '../services/cameraCapture.service';
+import { focusTimerService } from '../services/focusTimer.service';
+import type { FocusTimerState } from '../types';
 
 const MainLayout: React.FC = () => {
   const location = useLocation();
   const [cameraStatus, setCameraStatus] = useState<CameraStatus>(cameraCaptureService.getStatus());
+  const [timerState, setTimerState] = useState<FocusTimerState>(() => focusTimerService.getState());
 
   useEffect(() => {
-    return cameraCaptureService.subscribeStatus(setCameraStatus);
+    const unsubCamera = cameraCaptureService.subscribeStatus(setCameraStatus);
+    const unsubTimer = focusTimerService.subscribe(setTimerState);
+    return () => {
+      unsubCamera();
+      unsubTimer();
+    };
   }, []);
 
   const cameraLabel = {
@@ -70,14 +78,30 @@ const MainLayout: React.FC = () => {
         {/* Topbar */}
         <header className="topbar">
           <div className="topbar-title">{getPageTitle()}</div>
-          <div
-            className={`camera-status${cameraStatus.state === 'active' ? ' active' : ''}`}
-            title={cameraStatus.message}
-            role="status"
-            aria-live="polite"
-          >
-            <span className="dot" aria-hidden="true"></span>
-            {cameraLabel}
+          <div className="topbar-actions">
+            {timerState.status !== 'idle' && (
+              <NavLink
+                to="/session"
+                className={`topbar-session-badge ${timerState.status}`}
+                title="Go to focus session"
+              >
+                <span className="dot" aria-hidden="true"></span>
+                <span>
+                  {timerState.status === 'running' && `Focusing · ${timerState.formattedRemaining}`}
+                  {timerState.status === 'paused' && `Paused · ${timerState.formattedRemaining}`}
+                  {timerState.status === 'completed' && 'Session Complete'}
+                </span>
+              </NavLink>
+            )}
+            <div
+              className={`camera-status${cameraStatus.state === 'active' ? ' active' : ''}`}
+              title={cameraStatus.message}
+              role="status"
+              aria-live="polite"
+            >
+              <span className="dot" aria-hidden="true"></span>
+              {cameraLabel}
+            </div>
           </div>
         </header>
 

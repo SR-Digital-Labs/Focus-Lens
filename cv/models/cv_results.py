@@ -29,8 +29,18 @@ class PostureState:
     """Observable posture states."""
     GOOD_POSTURE     = "GOOD_POSTURE"
     SLOUCHED_POSTURE = "SLOUCHED_POSTURE"
+    SLOUCHED         = "SLOUCHED_POSTURE"  # Alias for Day 14/15 specification
     UNKNOWN          = "UNKNOWN"
     UNCERTAIN        = "UNCERTAIN"
+
+    @classmethod
+    def normalize(cls, state: str) -> str:
+        """Normalize posture state string to the canonical state definition."""
+        if state in (cls.SLOUCHED_POSTURE, "SLOUCHED"):
+            return cls.SLOUCHED_POSTURE
+        if state == cls.GOOD_POSTURE:
+            return cls.GOOD_POSTURE
+        return cls.UNKNOWN
 
 
 @dataclass

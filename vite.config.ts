@@ -21,10 +21,10 @@ export default defineConfig({
   // Produce sourcemaps for better debugging in Tauri
   build: {
     sourcemap: !!process.env.TAURI_ENV_DEBUG,
-    // Tauri supports ES2021
-    target: process.env.TAURI_ENV_PLATFORM == 'windows'
+    // Tauri supports ES2021; default to chrome105 on Windows or local development
+    target: process.env.TAURI_ENV_PLATFORM === 'windows' || !process.env.TAURI_ENV_PLATFORM
       ? 'chrome105'
-      : 'safari13',
+      : 'safari14',
     minify: !process.env.TAURI_ENV_DEBUG ? 'esbuild' : false,
   },
 })

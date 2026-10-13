@@ -17,6 +17,9 @@ from .posture_landmark_extractor import (
     PostureLandmarkExtractor,
     PostureLandmarks,
 )
+from .posture_classifier import PostureClassifier
+from .posture_reliability import PostureReliabilityTracker
+from .activity_signal_aggregator import ActivitySignalAggregator
 
 __all__ = [
     # Camera
@@ -42,4 +45,10 @@ __all__ = [
     # Posture Landmark Extractor (Day 13)
     "PostureLandmarkExtractor",
     "PostureLandmarks",
+    # Posture Classifier (Day 14)
+    "PostureClassifier",
+    # Posture Reliability (Day 15)
+    "PostureReliabilityTracker",
+    # Activity Signal Aggregator (Day 12 & Day 15)
+    "ActivitySignalAggregator",
 ]

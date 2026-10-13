@@ -118,6 +118,27 @@ class CVPipeline:
         log.info("Stop requested.")
         self._running = False
 
+    @property
+    def aggregator(self) -> ActivitySignalAggregator:
+        """Access the underlying ActivitySignalAggregator."""
+        return self._aggregator
+
+    @property
+    def current_posture(self) -> str:
+        """Return the current stable application posture state."""
+        return self._aggregator.current_posture
+
+    def on_activity_signal(self, callback) -> None:
+        """
+        Subscribe a callback function to receive application activity signals.
+        Invoked whenever person presence, screen facing, or posture state changes.
+        """
+        self._aggregator.add_listener(callback)
+
+    def get_application_state(self) -> dict:
+        """Return the current snapshot of application states."""
+        return self._aggregator.get_current_state()
+
     # ------------------------------------------------------------------
     # Private — setup & teardown
     # ------------------------------------------------------------------

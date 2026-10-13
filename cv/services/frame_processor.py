@@ -56,6 +56,7 @@ from services.pose_landmarker import (
 )
 from services.screen_facing_estimator import ScreenFacingEstimator
 from services.posture_landmark_extractor import PostureLandmarkExtractor
+from services.posture_classifier import PostureClassifier
 from utils.logger import get_logger
 from models.cv_results import (
     CVResult,
@@ -67,6 +68,7 @@ from models.cv_results import (
 )
 from services.presence_reliability import PresenceReliabilityTracker
 from services.screen_facing_reliability import ScreenFacingReliabilityTracker
+from services.posture_reliability import PostureReliabilityTracker
 
 log = get_logger(__name__)
 
@@ -112,6 +114,7 @@ class FrameResult:
     screen_facing_state: str = ScreenFacingState.UNKNOWN
     screen_facing_confidence: float = 0.0
     posture_state: str = PostureState.UNKNOWN
+    raw_posture_state: str = PostureState.UNKNOWN
     extra: dict = field(default_factory=dict)
 
 
@@ -173,8 +176,12 @@ class FrameProcessor:
         self._screen_facing_tracker = ScreenFacingReliabilityTracker()
         self._screen_facing_estimator = ScreenFacingEstimator()
         # Day 13: extracts and validates upper-body landmarks for posture.
-        # Classification is added in Day 14; until then posture_state stays UNKNOWN.
         self._posture_extractor = PostureLandmarkExtractor()
+        # Day 14: classifies the extracted landmarks into GOOD_POSTURE /
+        # SLOUCHED / UNKNOWN using the ear-to-shoulder drop ratio heuristic.
+        self._posture_classifier = PostureClassifier()
+        # Day 15: debounces and stabilizes posture state across consecutive frames.
+        self._posture_tracker = PostureReliabilityTracker()
 
         log.debug("FrameProcessor initialised (scale=%.2f).", scale)
 
@@ -247,12 +254,14 @@ class FrameProcessor:
         # Step 4 — person presence
         presence_result = self._reliability_tracker.process(face_result)
 
-        # Step 5 — Day 13: extract upper-body pose landmarks for posture.
-        # The extractor validates landmarks and returns availability info.
-        # Actual posture classification (GOOD / SLOUCHED) is added in Day 14;
-        # until then posture_state remains UNKNOWN.
+        # Step 5 — Day 13/14/15: extract upper-body pose landmarks, classify
+        # raw posture, and debounce into stable application posture state.
         posture_landmarks = self._posture_extractor.extract(pose_result)
-        posture_state = posture_landmarks.extraction_state  # UNKNOWN for now
+        raw_posture_state = self._posture_classifier.classify(posture_landmarks)
+        posture_state = self._posture_tracker.process(
+            raw_posture_state,
+            person_state=presence_result.state,
+        )
 
         cv_res = self._build_cv_result(
             face_result,
@@ -263,9 +272,11 @@ class FrameProcessor:
             posture_state,
         )
         log.info(
-            "Person Presence: %s | Screen Facing: %s | Posture shoulders_valid: %s",
+            "Person Presence: %s | Screen Facing: %s | Posture: %s (raw=%s, shoulders_valid=%s)",
             presence_result.state,
             screen_facing_state,
+            posture_state,
+            raw_posture_state,
             posture_landmarks.shoulders_valid,
         )
 
@@ -280,7 +291,14 @@ class FrameProcessor:
             screen_facing_state=screen_facing_state,
             screen_facing_confidence=screen_facing_confidence,
             posture_state=posture_state,
+            raw_posture_state=raw_posture_state,
         )
+
+    def reset(self) -> None:
+        """Reset stateful trackers across consecutive frames."""
+        self._reliability_tracker = PresenceReliabilityTracker()
+        self._screen_facing_tracker = ScreenFacingReliabilityTracker()
+        self._posture_tracker.reset()
 
     def close(self) -> None:
         """Release MediaPipe model resources."""

@@ -6,6 +6,24 @@ export interface Session {
   isActive: boolean;
 }
 
+export type FocusDurationPreset = 25 | 45 | 60;
+export const PRESET_DURATIONS: readonly FocusDurationPreset[] = [25, 45, 60] as const;
+export const MIN_FOCUS_DURATION_MINUTES = 1;
+export const MAX_FOCUS_DURATION_MINUTES = 180;
+export const DEFAULT_FOCUS_DURATION_MINUTES = 25;
+
+export type FocusTimerStatus = 'idle' | 'running' | 'paused' | 'completed';
+
+export interface FocusTimerState {
+  status: FocusTimerStatus;
+  durationMinutes: number;
+  totalSeconds: number;
+  remainingSeconds: number;
+  elapsedSeconds: number;
+  progress: number;
+  formattedRemaining: string;
+}
+
 export type ActivityEventType = 'focused' | 'distracted' | 'away';
 
 export interface ActivityEvent {
