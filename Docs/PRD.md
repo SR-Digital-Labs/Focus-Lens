@@ -127,6 +127,12 @@ Custom duration
 
 The session records relevant activity metrics while running.
 
+Sessions follow `idle`, `starting`, `running`, `paused`, `completed`,
+`cancelled`, and `interrupted` runtime states. The timer reaching zero
+completes a session; explicitly ending early cancels it. Paused time is not
+included in elapsed focus time. Failed setup does not create a session record,
+and interrupted sessions retain only confirmed local metrics.
+
 7.2 Webcam Integration
 
 Users can:
@@ -172,6 +178,9 @@ Forward / Slouched posture
 Unknown
 
 The system can optionally provide a gentle reminder after a configurable period.
+The reminder is shown only after confirmed presence and a debounced slouched
+state persist continuously for the configured threshold. Good posture,
+unknown/unreliable detection, or absence resets the interval.
 
 7.6 Away Detection
 
@@ -327,7 +336,10 @@ Mobile companion application
 12. Functional Requirements
 FR-01 — Session Management
 
-The system shall allow users to start, pause/end, and complete focus sessions.
+The system shall allow users to start, pause, resume, complete, and cancel
+focus sessions using guarded lifecycle transitions. The system shall keep
+paused time separate from elapsed focus time and represent interrupted
+sessions distinctly from completed and cancelled sessions.
 
 FR-02 — Webcam Permission
 
@@ -380,6 +392,13 @@ The system shall provide configurable break reminders.
 FR-14 — Privacy Controls
 
 The system shall provide controls for camera access, tracking, notifications, storage, and history deletion.
+
+FR-15 — Posture Feedback
+
+The system shall optionally provide configurable, gentle posture feedback
+only for a continuous reliable slouched state while the person is confirmed
+present. It shall not issue posture reminders for `UNKNOWN` or unreliable
+detection.
 
 13. Non-Functional Requirements
 Privacy

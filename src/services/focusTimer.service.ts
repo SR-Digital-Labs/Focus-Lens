@@ -121,8 +121,8 @@ export class FocusTimerService {
   // ---------------------------------------------------------------------------
 
   public start(): boolean {
-    // Prevent starting if already running or if duration is invalid
-    if (this._status === 'running') {
+    // Starting from paused must use resume() so elapsed time is not discarded.
+    if (this._status !== 'idle' && this._status !== 'completed') {
       return false;
     }
     if (this._totalSeconds <= 0) {

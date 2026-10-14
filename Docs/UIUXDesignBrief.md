@@ -690,6 +690,15 @@ sitting position.
 
 The wording should remain gentle rather than judgmental.
 
+Show the reminder only while the person is confirmed present and both
+current-frame observations and the debounced posture state reliably indicate
+`SLOUCHED_POSTURE` for the configured continuous interval. `GOOD_POSTURE`,
+`UNKNOWN`, missing/unreliable landmarks, or confirmed absence resets the
+interval and must not trigger feedback.
+Dismissal hides the current notice; emit at most one notice for that
+continuous slouched interval. Use a gentle, non-medical, non-judgmental tone.
+The default interval is 60 seconds and can be changed or disabled in Settings.
+
 ---
 
 # 27. Session Completion Screen
@@ -941,6 +950,8 @@ Session
 ├── Default Session Duration
 ├── Break Reminders
 └── Posture Reminders
+    ├── Enabled
+    └── Reminder threshold
 
 Privacy
 ├── Camera Access
@@ -1049,7 +1060,7 @@ No session running
 ### Preparing
 
 ```text
-Preparing camera / session
+Preparing session or optional camera
 ```
 
 ### Active
@@ -1067,7 +1078,20 @@ Session temporarily paused
 ### Completed
 
 ```text
-Session finished
+Timer reached zero; session completed
+```
+
+### Cancelled
+
+```text
+User ended the session before the timer completed
+```
+
+### Interrupted
+
+```text
+The application recovered a session that did not end normally.
+Show confirmed elapsed time and mark it as interrupted.
 ```
 
 ### Error

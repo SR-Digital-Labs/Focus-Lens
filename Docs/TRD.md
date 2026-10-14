@@ -379,6 +379,15 @@ Unknown
 
 A configurable reminder may be triggered when poor posture continues for a defined period.
 
+The reminder requires confirmed person presence, a debounced
+`SLOUCHED_POSTURE` state, and reliable current-frame face and pose observations
+for the full configured interval. `GOOD_POSTURE`, `UNKNOWN`, uncertain or
+missing landmarks, or absence resets that interval. Emit once per continuous
+slouched interval; do not turn unknown/unreliable observations into a
+reminder. The CV layer defaults to enabled with a 60-second threshold, which
+the user-preference layer may override. Frames and raw landmarks remain local
+and are not included in reminder events.
+
 ---
 
 # 14. Focus Session Engine
@@ -422,21 +431,45 @@ Session Summary
 
 # 15. Session State Management
 
-The application should maintain clear session states.
-
-Proposed states:
+The session manager is the single owner of lifecycle state, session IDs,
+timestamps, transition validation, and persistence. Its runtime states are:
 
 ```text
-IDLE
-REQUESTING_CAMERA
-READY
-RUNNING
-PAUSED
-COMPLETED
-CANCELLED
+idle -> starting -> running <-> paused
+                         |         |
+                         +-> completed
+                         +-> cancelled
+                         +-> interrupted
+terminal -> starting (explicit new session)
 ```
 
-The exact state model can be refined during implementation.
+`idle` and `starting` are transient and are not persisted as session rows.
+`starting` covers duration validation and optional camera preparation. The
+session becomes `running` only when it is ready to count focus time; if the
+camera is disabled by choice, setup may proceed without CV. Failed setup
+returns to `idle` without a session record.
+
+Only valid transitions are accepted. Duplicate start/pause/resume/end actions
+are rejected without changing the session ID, timer, or event stream. Timer
+zero transitions `running` to `completed`; an explicit early End from
+`running` or `paused` transitions to `cancelled`; process/runtime recovery
+transitions a persisted nonterminal session to `interrupted`. A terminal
+session is not resumed: a deliberate new Start creates a new ID.
+
+The manager records UTC ISO-8601 start, pause, and end timestamps. Planned
+duration is stored in minutes; elapsed running seconds and completed paused
+seconds are separate counters. Elapsed time is the sum of running intervals
+and excludes all pauses. On recovery, preserve confirmed elapsed time and do
+not count downtime.
+
+The existing `FocusTimerService` remains the deadline-based countdown
+authority for remaining time, not for session history. On `running`, the
+manager starts the timer; on pause/resume it invokes the corresponding timer
+transition; on completion it finalizes the session exactly once; on cancel it
+records the terminal state before resetting the timer. It associates the same
+session ID with activity events and accepts CV metrics/reminders only while
+the lifecycle is `running`. `SessionEventPayload.status` uses this lifecycle
+state vocabulary.
 
 ---
 
@@ -619,7 +652,7 @@ React UI → FocusLens Service → Tauri IPC → Native/CV Adapter → Python CV
                     └── typed events┘
 ```
 
-Tauri commands carry request/response operations. Tauri events carry activity signals, session lifecycle events, and future CV responses. The frontend service owns transport details; UI components consume domain types. Python/OpenCV/MediaPipe is not implemented by this foundation and can later be connected behind the native adapter without exposing frames to React.
+Tauri commands carry request/response operations. Tauri events carry activity signals, session lifecycle events, and future CV responses. The frontend service owns transport details; UI components consume domain types. The Python/OpenCV/MediaPipe CV pipeline exists as a separate local component; end-to-end Tauri adapter wiring remains future integration work and must not expose frames to React.
 
 ## 22.1 Request and Response Contract
 
@@ -648,7 +681,7 @@ Errors use `{ "code", "message", "details?" }`. Clients reject mismatched IDs, f
 
 ## 22.2 Event Contracts
 
-Events use `{ "eventId", "occurredAt", "sessionId?", "payload" }`. Initial event topics are `activity-signal`, `session-event`, and `cv-response`. Activity signals represent person presence, approximate screen-facing state, posture, and optional confidence; uncertain detections use `unknown`. Session events represent lifecycle transitions. CV responses correlate to a request and can carry a normalized activity signal or a structured error. Raw camera frames and landmarks are not part of the UI contract.
+Events use `{ "eventId", "occurredAt", "sessionId?", "payload" }`. Initial event topics are `activity-signal`, `session-event`, and `cv-response`. Activity signals represent person presence, approximate screen-facing state, posture, optional confidence, and a one-shot `postureReminder` event flag. Session events represent the lifecycle states defined in section 15. CV responses correlate to a request and can carry a normalized activity signal or a structured error. Raw camera frames and landmarks are not part of the UI contract.
 
 ## 22.3 Runtime, Configuration, and Errors
 

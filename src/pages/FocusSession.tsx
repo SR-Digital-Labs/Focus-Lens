@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Camera, CameraOff, ShieldCheck } from 'lucide-react';
-import type { CameraStatus } from '../services/contracts';
+import type { CameraStatus, Unsubscribe } from '../services/contracts';
 import { cameraCaptureService } from '../services/cameraCapture.service';
+import { focusLensService } from '../services/focusLensService';
 import { FocusTimer } from '../components/FocusTimer';
 
 const FocusSession: React.FC = () => {
@@ -9,6 +10,7 @@ const FocusSession: React.FC = () => {
   const frameCountRef = useRef(0);
   const [cameraStatus, setCameraStatus] = useState<CameraStatus>(cameraCaptureService.getStatus());
   const [frameCount, setFrameCount] = useState(0);
+  const [showPostureReminder, setShowPostureReminder] = useState(false);
 
   useEffect(() => {
     const unsubscribeStatus = cameraCaptureService.subscribeStatus(setCameraStatus);
@@ -18,9 +20,26 @@ const FocusSession: React.FC = () => {
     const frameCountTimer = window.setInterval(() => {
       setFrameCount(frameCountRef.current);
     }, 1_000);
+    let disposed = false;
+    let unsubscribeActivity: Unsubscribe | undefined;
+    void focusLensService.activity.subscribe((event) => {
+      if (event.payload.postureReminder) {
+        setShowPostureReminder(true);
+      }
+    }).then((unsubscribe) => {
+      if (disposed) {
+        unsubscribe();
+      } else {
+        unsubscribeActivity = unsubscribe;
+      }
+    }).catch((error: unknown) => {
+      console.error('Unable to subscribe to activity reminders:', error);
+    });
 
     return () => {
+      disposed = true;
       window.clearInterval(frameCountTimer);
+      unsubscribeActivity?.();
       unsubscribeStatus();
       unsubscribeFrames();
       cameraCaptureService.stopCapture();
@@ -42,6 +61,22 @@ const FocusSession: React.FC = () => {
           <span>Privacy First · Local Only</span>
         </div>
       </div>
+
+      {showPostureReminder && (
+        <section className="posture-reminder" role="status" aria-live="polite">
+          <div>
+            <h2>Posture reminder</h2>
+            <p>Your posture has been slouched for a while. Consider adjusting your sitting position.</p>
+          </div>
+          <button
+            className="btn btn-secondary"
+            type="button"
+            onClick={() => setShowPostureReminder(false)}
+          >
+            Got it
+          </button>
+        </section>
+      )}
 
       <div className="focus-session-layout">
         {/* Core Focus Session Timer (Day 16) */}

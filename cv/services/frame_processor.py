@@ -43,6 +43,8 @@ from config import (
     POSE_DETECTION_CONFIDENCE,
     POSE_PRESENCE_CONFIDENCE,
     MAX_POSES,
+    POSTURE_REMINDER_THRESHOLD_SECONDS,
+    POSTURE_REMINDERS_ENABLED,
 )
 from services.face_landmarker import (
     FaceDetectionResult,
@@ -69,6 +71,7 @@ from models.cv_results import (
 from services.presence_reliability import PresenceReliabilityTracker
 from services.screen_facing_reliability import ScreenFacingReliabilityTracker
 from services.posture_reliability import PostureReliabilityTracker
+from services.posture_reminder import PostureReminderTracker
 
 log = get_logger(__name__)
 
@@ -115,6 +118,7 @@ class FrameResult:
     screen_facing_confidence: float = 0.0
     posture_state: str = PostureState.UNKNOWN
     raw_posture_state: str = PostureState.UNKNOWN
+    posture_reminder: bool = False
     extra: dict = field(default_factory=dict)
 
 
@@ -129,10 +133,9 @@ class FrameProcessor:
 
     Holds and drives local face and pose landmark services.
 
-    The processor itself is stateless across frames by design — each call to
-    ``process()`` is independent. State that must persist across frames
-    (e.g. a "person was last seen N frames ago" counter) will live in the
-    future ``ActivitySignalAggregator`` rather than here.
+    The processor owns only short-lived reliability and reminder trackers
+    needed to interpret consecutive frames. Long-lived session state belongs
+    to the application/session manager.
 
     Usage::
 
@@ -141,7 +144,12 @@ class FrameProcessor:
         processor.close()                          # release MediaPipe model
     """
 
-    def __init__(self, scale: float = FRAME_SCALE) -> None:
+    def __init__(
+        self,
+        scale: float = FRAME_SCALE,
+        posture_reminders_enabled: bool = POSTURE_REMINDERS_ENABLED,
+        posture_reminder_threshold_seconds: float = POSTURE_REMINDER_THRESHOLD_SECONDS,
+    ) -> None:
         self._scale = scale
 
         # Face Landmarker service — initialised once, reused every frame.
@@ -182,6 +190,10 @@ class FrameProcessor:
         self._posture_classifier = PostureClassifier()
         # Day 15: debounces and stabilizes posture state across consecutive frames.
         self._posture_tracker = PostureReliabilityTracker()
+        self._posture_reminder_tracker = PostureReminderTracker(
+            enabled=posture_reminders_enabled,
+            threshold_seconds=posture_reminder_threshold_seconds,
+        )
 
         log.debug("FrameProcessor initialised (scale=%.2f).", scale)
 
@@ -197,22 +209,45 @@ class FrameProcessor:
             frame: A :class:`~services.camera_service.CameraFrame` instance.
 
         Returns:
-            :class:`FrameResult` with raw face and pose landmark results.
-            Posture remains UNKNOWN until a posture estimator is implemented.
+            :class:`FrameResult` with raw face and pose landmark results,
+            stable posture state, and any eligible posture reminder event.
         """
         # Error handling: Invalid or empty frame
         if frame is None or frame.data is None or frame.data.size == 0:
             log.error("Invalid or empty frame received.")
+            face_result = FaceDetectionResult(
+                detected=False,
+                available=False,
+                state=FaceDetectionState.UNAVAILABLE,
+            )
+            presence_result = self._reliability_tracker.process(face_result)
+            screen_facing_state = self._screen_facing_tracker.process(
+                ScreenFacingState.UNKNOWN,
+                0.0,
+            )
+            posture_state = self._posture_tracker.process(
+                PostureState.UNKNOWN,
+                person_state=presence_result.state,
+            )
+            self._posture_reminder_tracker.reset()
             cv_res = CVResult(
                 status=CVState.INVALID_FRAME,
-                error_message="Frame is empty or invalid"
+                person_presence=presence_result.state,
+                screen_facing=screen_facing_state,
+                posture=posture_state,
+                error_message="Frame is empty or invalid",
             )
             return FrameResult(
                 frame_index=getattr(frame, "frame_index", -1) if frame else -1,
                 processed_frame=frame.data if frame and hasattr(frame, "data") else None,
+                face_detection=face_result,
                 cv_result=cv_res,
-                person_state=PersonState.UNKNOWN,
-                presence_result=PresenceResult(state=PersonState.UNKNOWN, detection_available=False)
+                person_state=presence_result.state,
+                presence_result=presence_result,
+                screen_facing_state=screen_facing_state,
+                posture_state=posture_state,
+                raw_posture_state=PostureState.UNKNOWN,
+                posture_reminder=False,
             )
 
         # Step 1 — optional resize
@@ -228,10 +263,15 @@ class FrameProcessor:
             face_result: FaceDetectionResult = self._detect_face(frame)
         except Exception as e:
             log.error("Error during face detection: %s", e)
+            detector_available = self._face_landmarker.is_available
             face_result = FaceDetectionResult(
                 detected=False,
-                available=False,
-                state=FaceDetectionState.UNCERTAIN,
+                available=detector_available,
+                state=(
+                    FaceDetectionState.UNCERTAIN
+                    if detector_available
+                    else FaceDetectionState.UNAVAILABLE
+                ),
             )
 
         try:
@@ -262,6 +302,19 @@ class FrameProcessor:
             raw_posture_state,
             person_state=presence_result.state,
         )
+        posture_reminder = self._posture_reminder_tracker.process(
+            posture_state,
+            presence_result.state,
+            posture_observation_reliable=(
+                raw_posture_state == PostureState.SLOUCHED_POSTURE
+            ),
+            person_observation_reliable=(
+                face_result.available
+                and face_result.state == FaceDetectionState.DETECTED
+                and face_result.detected
+                and face_result.landmarks_complete
+            ),
+        )
 
         cv_res = self._build_cv_result(
             face_result,
@@ -270,6 +323,7 @@ class FrameProcessor:
             screen_facing_state,
             screen_facing_confidence,
             posture_state,
+            posture_reminder,
         )
         log.info(
             "Person Presence: %s | Screen Facing: %s | Posture: %s (raw=%s, shoulders_valid=%s)",
@@ -292,6 +346,7 @@ class FrameProcessor:
             screen_facing_confidence=screen_facing_confidence,
             posture_state=posture_state,
             raw_posture_state=raw_posture_state,
+            posture_reminder=posture_reminder,
         )
 
     def reset(self) -> None:
@@ -299,6 +354,7 @@ class FrameProcessor:
         self._reliability_tracker = PresenceReliabilityTracker()
         self._screen_facing_tracker = ScreenFacingReliabilityTracker()
         self._posture_tracker.reset()
+        self._posture_reminder_tracker.reset()
 
     def close(self) -> None:
         """Release MediaPipe model resources."""
@@ -317,6 +373,7 @@ class FrameProcessor:
         screen_facing_state: str = ScreenFacingState.UNKNOWN,
         screen_facing_confidence: float = 0.0,
         posture_state: str = PostureState.UNKNOWN,
+        posture_reminder: bool = False,
     ) -> CVResult:
         """Adapt detector-specific outputs to the application data contract."""
         face_detected: Optional[bool] = None
@@ -374,6 +431,7 @@ class FrameProcessor:
             screen_facing=screen_facing_state,
             confidence=screen_facing_confidence,
             posture=posture_state,
+            posture_reminder=posture_reminder,
             error_message="; ".join(error_messages) or None,
         )
 

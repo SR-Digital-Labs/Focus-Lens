@@ -10,7 +10,7 @@ basic posture analysis from a ``PoseDetectionResult``.
 
 This module is intentionally *only* about landmark extraction and validation.
 Posture classification (GOOD_POSTURE / SLOUCHED / UNKNOWN) is a separate
-concern and will be implemented in Day 14.
+concern implemented by ``PostureClassifier``.
 
 Selected landmarks
 ------------------
@@ -105,8 +105,8 @@ class PostureLandmarks:
         right_shoulder:   Right-shoulder landmark (index 12), or None.
         left_hip:         Left-hip landmark (index 23), or None.
         right_hip:        Right-hip landmark (index 24), or None.
-        extraction_state: The upstream posture state string.  Always UNKNOWN
-                          at this stage — classification is reserved for Day 14.
+        extraction_state: UNKNOWN until the separate classifier evaluates
+                          these extracted landmarks.
     """
 
     available: bool = False
@@ -120,7 +120,7 @@ class PostureLandmarks:
     left_hip: Optional[PoseLandmark] = None
     right_hip: Optional[PoseLandmark] = None
 
-    # Always PostureState.UNKNOWN for now; Day 14 will classify from these fields.
+    # Extraction validates input; classification is a separate stage.
     extraction_state: str = PostureState.UNKNOWN
 
 

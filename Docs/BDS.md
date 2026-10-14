@@ -177,7 +177,7 @@ The MVP will use four primary tables:
 
 The `sessions` table stores information about each FocusLens focus session.
 
-The project requires session history and metrics such as total focus time, number of sessions, average session length, away time, screen-facing duration, posture events, and focus indicators.
+The project requires session history and metrics such as total focus time, number of sessions, average session length, away time, screen-facing duration, posture events, and focus indicators. Session timestamps in the application snapshot and storage are UTC ISO-8601 strings; durations are integer seconds unless otherwise noted.
 
 ## 6.1 Fields
 
@@ -187,7 +187,9 @@ The project requires session history and metrics such as total focus time, numbe
 | `started_at`             | TEXT    | NOT NULL          | Session start timestamp             |
 | `ended_at`               | TEXT    | NULL              | Session end timestamp               |
 | `planned_duration`       | INTEGER | NOT NULL          | Planned session duration in minutes |
-| `actual_duration`        | INTEGER | NULL              | Actual session duration in seconds  |
+| `actual_duration`        | INTEGER | NOT NULL, DEFAULT 0 | Confirmed running time in seconds, excluding pauses |
+| `paused_at`              | TEXT    | NULL              | Start of the current pause, if paused |
+| `paused_duration`        | INTEGER | DEFAULT 0         | Completed pause time in seconds     |
 | `status`                 | TEXT    | NOT NULL          | Session completion state            |
 | `focus_indicator`        | REAL    | NULL              | App-generated focus indicator       |
 | `away_duration`          | INTEGER | DEFAULT 0         | Total away time in seconds          |
@@ -199,23 +201,26 @@ The project requires session history and metrics such as total focus time, numbe
 
 ## 6.2 Session Status
 
-The `status` field may contain:
+Persisted session statuses are:
 
 ```text
-active
+running
 paused
 completed
 cancelled
 interrupted
 ```
 
-Example:
+`idle` and `starting` are transient manager states and do not create a
+`sessions` row. A row is created when setup succeeds and the session enters
+`running`. `actual_duration` accumulates only confirmed running intervals;
+`paused_duration` accumulates completed pauses. While paused, `paused_at`
+records the current pause start. Both timestamps use UTC ISO-8601.
 
-```text
-completed
-```
-
-means the user successfully ended or completed the session.
+`completed` means the configured timer reached zero. An explicit early End
+action records `cancelled`; `interrupted` is reserved for unrecoverable
+shutdown/failure. On recovery, close nonterminal rows as interrupted without
+counting unobserved process downtime as active focus time.
 
 ---
 
@@ -277,6 +282,7 @@ SCREEN_FACING_UNKNOWN
 POSTURE_GOOD
 POSTURE_SLOUCHED
 POSTURE_UNKNOWN
+POSTURE_REMINDER
 ```
 
 ### Session Activity
@@ -357,6 +363,8 @@ This table stores normal application preferences.
 | `default_break_duration`  | INTEGER | NOT NULL    | Default break duration   |
 | `away_threshold`          | INTEGER | NOT NULL    | Away detection threshold |
 | `break_reminders_enabled` | INTEGER | NOT NULL    | Enable/disable reminders |
+| `posture_reminders_enabled` | INTEGER | NOT NULL  | Enable/disable posture reminders |
+| `posture_reminder_threshold_seconds` | INTEGER | NOT NULL | Continuous reliable slouch interval before reminder |
 | `created_at`              | TEXT    | NOT NULL    | Creation timestamp       |
 | `updated_at`              | TEXT    | NOT NULL    | Last update timestamp    |
 
@@ -662,48 +670,37 @@ The exact calculation formula should be finalized during implementation and shou
 
 # 22. Session Lifecycle
 
-A typical session lifecycle is:
+Runtime lifecycle:
 
 ```text
-Created
-   ↓
-Active
-   ↓
-Paused
-   ↓
-Resumed
-   ↓
-Completed
+idle -> starting -> running <-> paused
+                         |         |
+                         +-> completed
+                         +-> cancelled
+                         +-> interrupted
 ```
 
-Alternative ending:
+Only persisted states have session rows:
 
 ```text
-Active
-   ↓
-Cancelled
+running | paused | completed | cancelled | interrupted
 ```
 
-or:
-
-```text
-Active
-   ↓
-Interrupted
-```
-
-The final database record should preserve enough information to display the session correctly in history.
+`completed` means the planned timer reached zero; an explicit early End is
+`cancelled`. Repeated or invalid transitions do not alter the row or emit a
+second event. A crash-recovered nonterminal row becomes `interrupted`, with
+elapsed time limited to confirmed running intervals.
 
 ---
 
 # 23. Session Creation
 
-When the user starts a session:
+When setup succeeds and the manager transitions to `running`:
 
-1. Create a new session record.
-2. Store the start timestamp.
+1. Create a new session record and immutable session ID.
+2. Store the UTC start timestamp; setup and permission time are excluded.
 3. Store planned duration.
-4. Set status to `active`.
+4. Set status to `running`.
 5. Initialize metrics to zero.
 6. Begin activity monitoring.
 
@@ -712,7 +709,9 @@ Example:
 ```text
 id: 15
 planned_duration: 25
-status: active
+status: running
+actual_duration: 0
+paused_duration: 0
 away_duration: 0
 screen_facing_duration: 0
 posture_event_count: 0
@@ -867,8 +866,12 @@ CREATE TABLE sessions (
     started_at TEXT NOT NULL,
     ended_at TEXT,
     planned_duration INTEGER NOT NULL,
-    actual_duration INTEGER,
-    status TEXT NOT NULL,
+    actual_duration INTEGER NOT NULL DEFAULT 0,
+    paused_at TEXT,
+    paused_duration INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL CHECK (
+        status IN ('running', 'paused', 'completed', 'cancelled', 'interrupted')
+    ),
     focus_indicator REAL,
     away_duration INTEGER DEFAULT 0,
     screen_facing_duration INTEGER DEFAULT 0,
@@ -899,6 +902,8 @@ CREATE TABLE user_preferences (
     default_break_duration INTEGER NOT NULL,
     away_threshold INTEGER NOT NULL,
     break_reminders_enabled INTEGER NOT NULL,
+    posture_reminders_enabled INTEGER NOT NULL DEFAULT 1,
+    posture_reminder_threshold_seconds INTEGER NOT NULL DEFAULT 60,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );

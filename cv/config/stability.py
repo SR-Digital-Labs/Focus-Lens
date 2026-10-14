@@ -1,7 +1,10 @@
 """Confidence and debounce thresholds for CV state tracking."""
 
+# Presence changes only after consecutive reliable observations; prolonged
+# uncertainty ages the stable state to UNKNOWN rather than treating it as AWAY.
 PRESENCE_CONSECUTIVE_DETECTION_THRESHOLD: int = 3
 PRESENCE_CONSECUTIVE_MISSING_THRESHOLD: int = 5
+PRESENCE_CONSECUTIVE_UNKNOWN_THRESHOLD: int = 3
 
 SCREEN_FACING_MIN_CONFIDENCE: float = 0.15
 SCREEN_FACING_CONSECUTIVE_STATE_THRESHOLD: int = 3
@@ -53,3 +56,8 @@ POSTURE_CONSECUTIVE_STATE_THRESHOLD: int = 3
 # required before falling back to UNKNOWN. Temporary glitches (< threshold)
 # do not flip a stable posture state to UNKNOWN.
 POSTURE_CONSECUTIVE_UNKNOWN_THRESHOLD: int = 3
+
+# A posture reminder is emitted once per continuous, reliable slouched interval.
+# The user-preference store may override these defaults when integrated.
+POSTURE_REMINDERS_ENABLED: bool = True
+POSTURE_REMINDER_THRESHOLD_SECONDS: float = 60.0

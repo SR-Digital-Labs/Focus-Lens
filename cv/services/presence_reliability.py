@@ -10,6 +10,7 @@ from __future__ import annotations
 from config import (
     PRESENCE_CONSECUTIVE_DETECTION_THRESHOLD,
     PRESENCE_CONSECUTIVE_MISSING_THRESHOLD,
+    PRESENCE_CONSECUTIVE_UNKNOWN_THRESHOLD,
 )
 from services.face_landmarker import FaceDetectionResult, FaceDetectionState
 from models.cv_results import PresenceResult, PersonState
@@ -27,6 +28,7 @@ class PresenceReliabilityTracker:
     def __init__(self) -> None:
         self._consecutive_detections = 0
         self._consecutive_missing = 0
+        self._consecutive_unknown = 0
         self._stable_state = PersonState.UNKNOWN
 
     def process(self, face_result: FaceDetectionResult) -> PresenceResult:
@@ -39,11 +41,13 @@ class PresenceReliabilityTracker:
             if (
                 face_result.state == FaceDetectionState.DETECTED
                 and face_result.detected
+                and face_result.landmarks_complete
             ):
                 raw_state = PersonState.PRESENT
             elif (
                 face_result.state == FaceDetectionState.NOT_DETECTED
                 and not face_result.detected
+                and face_result.face_count == 0
             ):
                 raw_state = PersonState.AWAY
 
@@ -51,24 +55,33 @@ class PresenceReliabilityTracker:
         if raw_state == PersonState.PRESENT:
             self._consecutive_detections += 1
             self._consecutive_missing = 0
+            self._consecutive_unknown = 0
         elif raw_state == PersonState.AWAY:
             self._consecutive_missing += 1
             self._consecutive_detections = 0
+            self._consecutive_unknown = 0
         else:
-            # If UNKNOWN (e.g., camera glitch), we can optionally preserve
-            # counts or just let the stable state persist until a clear
-            # detection or absence happens. We won't clear counts so that a single
-            # UNKNOWN frame doesn't break a streak.
-            pass
+            # Uncertain frames break consecutive evidence without counting as
+            # proof that the person is away.
+            self._consecutive_detections = 0
+            self._consecutive_missing = 0
+            if face_result.available:
+                self._consecutive_unknown += 1
+                if (
+                    self._consecutive_unknown
+                    >= PRESENCE_CONSECUTIVE_UNKNOWN_THRESHOLD
+                ):
+                    self._stable_state = PersonState.UNKNOWN
+            else:
+                self._consecutive_unknown = 0
+                self._stable_state = PersonState.UNKNOWN
 
         # Update stable state based on thresholds
         if self._consecutive_detections >= PRESENCE_CONSECUTIVE_DETECTION_THRESHOLD:
             self._stable_state = PersonState.PRESENT
         elif self._consecutive_missing >= PRESENCE_CONSECUTIVE_MISSING_THRESHOLD:
             self._stable_state = PersonState.AWAY
-        elif raw_state == PersonState.UNKNOWN and self._stable_state == PersonState.UNKNOWN:
-            self._stable_state = PersonState.UNKNOWN
-            
+
         # Development output
         log.debug(
             "Raw Detection: %s | Detection Count: %d | Missing Count: %d | Stable State: %s",

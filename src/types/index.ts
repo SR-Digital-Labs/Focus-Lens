@@ -1,9 +1,23 @@
+export type SessionLifecycleState =
+  | 'idle'
+  | 'starting'
+  | 'running'
+  | 'paused'
+  | 'completed'
+  | 'cancelled'
+  | 'interrupted';
+
+export type PersistedSessionStatus = Exclude<SessionLifecycleState, 'idle' | 'starting'>;
+
 export interface Session {
   id: string;
-  startTime: number;
-  endTime?: number;
-  duration?: number;
-  isActive: boolean;
+  status: PersistedSessionStatus;
+  plannedDurationSeconds: number;
+  startedAt: string;
+  pausedAt: string | null;
+  endedAt: string | null;
+  elapsedSeconds: number;
+  pausedDurationSeconds: number;
 }
 
 export type FocusDurationPreset = 25 | 45 | 60;

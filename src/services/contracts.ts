@@ -1,3 +1,5 @@
+import type { SessionLifecycleState } from '../types';
+
 export type ServiceErrorCode =
   | 'NATIVE_UNAVAILABLE'
   | 'NOT_IMPLEMENTED'
@@ -69,6 +71,7 @@ export interface ActivitySignal {
   screenFacing: 'facing' | 'looking_away' | 'unknown';
   posture: 'good' | 'slouched' | 'unknown';
   confidence?: number;
+  postureReminder?: boolean;
 }
 
 export type SessionEventType =
@@ -81,7 +84,18 @@ export type SessionEventType =
 
 export interface SessionEventPayload {
   type: SessionEventType;
-  status: 'idle' | 'running' | 'paused' | 'completed' | 'cancelled' | 'interrupted';
+  status: SessionLifecycleState;
+}
+
+export interface SessionSnapshot {
+  sessionId: string | null;
+  status: SessionLifecycleState;
+  plannedDurationSeconds: number | null;
+  startedAt: string | null;
+  pausedAt: string | null;
+  endedAt: string | null;
+  elapsedSeconds: number;
+  pausedDurationSeconds: number;
 }
 
 export interface CvResponse {

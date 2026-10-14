@@ -111,12 +111,14 @@ class ActivitySignalAggregator:
         facing_state = getattr(frame_result, "screen_facing_state", ScreenFacingState.UNKNOWN)
         posture_state = getattr(frame_result, "posture_state", PostureState.UNKNOWN)
         facing_confidence = getattr(frame_result, "screen_facing_confidence", 0.0)
+        posture_reminder = getattr(frame_result, "posture_reminder", False)
 
         return self.update_direct(
             person_state=person_state,
             facing_state=facing_state,
             posture_state=posture_state,
             confidence=facing_confidence,
+            posture_reminder=posture_reminder,
         )
 
     def update_direct(
@@ -125,6 +127,7 @@ class ActivitySignalAggregator:
         facing_state: str,
         posture_state: str,
         confidence: float = 0.0,
+        posture_reminder: bool = False,
     ) -> Optional[Dict[str, Any]]:
         """
         Directly update state components and emit signal if any state changed.
@@ -148,7 +151,7 @@ class ActivitySignalAggregator:
             changed = True
 
         # If any tracked state changed, construct a new signal
-        if changed:
+        if changed or posture_reminder:
             self._last_signal_time = time.time()
             signal = {
                 "person_presence": self._current_person,
@@ -156,6 +159,7 @@ class ActivitySignalAggregator:
                 "posture": self._current_posture,
                 "confidence": confidence,
                 "timestamp": self._last_signal_time,
+                "posture_reminder": posture_reminder,
             }
             log.info(
                 "Activity Signal Updated: Person=%s | Facing=%s | Posture=%s | Conf=%.2f",
@@ -164,6 +168,8 @@ class ActivitySignalAggregator:
                 self._current_posture,
                 confidence,
             )
+            if posture_reminder:
+                log.info("Posture reminder emitted after sustained reliable slouching.")
 
             # Notify listeners
             for listener in list(self._listeners):

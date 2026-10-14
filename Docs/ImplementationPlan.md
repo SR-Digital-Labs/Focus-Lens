@@ -472,6 +472,14 @@ into the application's activity signal pipeline.
 
 Integrated person + screen-facing detection.
 
+Presence is `PRESENT` after three consecutive complete face detections and
+`AWAY` after five consecutive successful no-face results. Uncertain results
+break those evidence streaks without counting as absence; a brief uncertain
+streak preserves the stable presence, while three consecutive uncertain
+results or an unavailable detector yields `UNKNOWN`. Screen-facing remains
+independently debounced, so missing or unreliable face landmarks cannot be
+reported as a confident orientation.
+
 ---
 
 # 7. Phase 4 — Posture Detection
@@ -480,9 +488,10 @@ Integrated person + screen-facing detection.
 
 ### Main Objective
 
-Implement basic posture monitoring.
+Complete local posture monitoring and reliable posture feedback.
 
-The proposal identifies posture states such as good, slouched, and unknown.
+The extractor, classifier, and reliability tracker are separate stages.
+Frames and raw landmarks remain local and are not persisted as reminder data.
 
 ---
 
@@ -494,8 +503,16 @@ The proposal identifies posture states such as good, slouched, and unknown.
 
 ### Ragavi
 
-* Implement required MediaPipe pose landmarks.
-* Test landmark visibility.
+* Extract the MediaPipe nose, ears, shoulders, and optional hips into the
+  posture-specific result type.
+* Require reliable visibility and valid coordinates for both shoulders;
+  treat unavailable, short, non-finite, or low-visibility results as
+  insufficient evidence.
+
+### Deliverable
+
+Validated upper-body pose landmarks, with missing optional landmarks kept
+distinct from invalid required shoulder landmarks.
 
 ---
 
@@ -507,7 +524,9 @@ The proposal identifies posture states such as good, slouched, and unknown.
 
 ### Ragavi
 
-* Implement basic posture classification.
+* Classify validated landmarks using the scale-normalized ear-to-shoulder
+  ratio, with a configurable dead zone and shoulder-tilt rejection.
+* Return `UNKNOWN` for missing or ambiguous geometry instead of guessing.
 
 States:
 
@@ -523,7 +542,16 @@ Unknown
 
 ### Shared
 
-Integrate posture detection into the common activity signal.
+Integrate the debounced posture state into the common activity signal.
+
+### Ragavi
+
+* Require consecutive reliable states before posture changes and clear
+  posture when the person is confirmed away.
+* Emit a gentle reminder once per sustained slouched interval only while
+  both current-frame pose evidence and person presence are reliable.
+* Reset reminder timing on good posture, unknown posture, or absence; support
+  the planned enabled/threshold preferences.
 
 Example:
 
@@ -568,11 +596,12 @@ Custom
 
 ### Ragavi
 
-* Create session state structure.
+* Define the session lifecycle, transition guards, timestamps, and timer
+  ownership boundary across the six project documents.
 
 ### Deliverable
 
-Session setup screen.
+Session setup screen and a documented session lifecycle/state structure.
 
 ---
 
@@ -585,11 +614,57 @@ Session setup screen.
 
 ### Ragavi
 
-* Implement timer/session engine.
+* Specify the session-manager contract with the timer and activity-event
+  stream, including completion, cancellation, recovery, and invalid actions.
 
 ### Deliverable
 
-Working focus timer.
+Working countdown timer plus a documented session-state contract for its
+future manager integration. The existing timer remains a timer, not the
+authoritative session-history record.
+
+### Session lifecycle design (Days 16–17)
+
+The session manager owns lifecycle state and persistence; the existing
+`FocusTimerService` owns only remaining time and countdown ticks. Canonical
+runtime states are `idle`, `starting`, `running`, `paused`, `completed`,
+`cancelled`, and `interrupted`. `idle` and `starting` are transient application
+states; persisted sessions start as `running`.
+
+```text
+idle -> starting -> running <-> paused
+                         |         |
+                         +-> completed (timer reaches zero)
+                         +-> cancelled (user ends early)
+                         +-> interrupted (unrecoverable shutdown/failure)
+terminal -> starting (only after an explicit new start)
+```
+
+An accepted start validates duration and obtains camera readiness if camera
+use was requested. The session start timestamp and timer deadline are set at
+the transition to `running`, not while permission or setup is pending. A
+session ID is created once for that run and is retained through pause/resume.
+Repeated start, pause, resume, or terminal actions that are invalid for the
+current state are rejected without mutating state or emitting duplicate
+events. A failed/cancelled setup returns to `idle` without creating a history
+row.
+
+Store UTC ISO-8601 `started_at`, `ended_at`, and current `paused_at`
+timestamps; store planned duration in minutes, accumulated active elapsed
+seconds, and accumulated completed-pause seconds separately. Active elapsed
+excludes pauses and is calculated from committed running intervals plus the
+current running segment. `completed` means the planned timer reached zero;
+an explicit early End action means `cancelled`. On unclean restart, mark a
+persisted nonterminal session `interrupted`, preserve confirmed counters, and
+do not count unobserved process downtime as focused time.
+
+The manager starts/pauses/resumes/ends the timer only on valid transitions.
+Timer zero completes the matching session once; user End cancels the session
+before the timer is reset. Activity and posture-reminder events are associated
+with the same session ID and accepted only while it is `running`; pause
+suspends session accounting and reminders. These derived events remain local.
+The existing `SessionEventPayload` status type is the UI/native boundary for
+the same lifecycle names.
 
 ---
 

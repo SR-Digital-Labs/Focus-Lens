@@ -74,6 +74,7 @@ class CVResult:
     person_presence: str = CVState.UNKNOWN
     screen_facing: str = CVState.UNKNOWN
     posture: str = CVState.UNKNOWN
+    posture_reminder: bool = False
     activity: Optional[str] = None
     confidence: Optional[float] = None
     error_message: Optional[str] = None
