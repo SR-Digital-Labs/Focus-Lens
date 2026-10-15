@@ -177,7 +177,7 @@ The MVP will use four primary tables:
 
 The `sessions` table stores information about each FocusLens focus session.
 
-The project requires session history and metrics such as total focus time, number of sessions, average session length, away time, screen-facing duration, posture events, and focus indicators.
+The project requires session history and metrics such as total focus time, number of sessions, average session length, away time, screen-facing duration, posture events, and focus indicators. Session timestamps in the application snapshot and storage are UTC ISO-8601 strings; durations are integer seconds unless otherwise noted.
 
 ## 6.1 Fields
 
@@ -187,7 +187,9 @@ The project requires session history and metrics such as total focus time, numbe
 | `started_at`             | TEXT    | NOT NULL          | Session start timestamp             |
 | `ended_at`               | TEXT    | NULL              | Session end timestamp               |
 | `planned_duration`       | INTEGER | NOT NULL          | Planned session duration in minutes |
-| `actual_duration`        | INTEGER | NULL              | Actual session duration in seconds  |
+| `actual_duration`        | INTEGER | NOT NULL, DEFAULT 0 | Confirmed running time in seconds, excluding pauses |
+| `paused_at`              | TEXT    | NULL              | Start of the current pause, if paused |
+| `paused_duration`        | INTEGER | DEFAULT 0         | Completed pause time in seconds     |
 | `status`                 | TEXT    | NOT NULL          | Session completion state            |
 | `focus_indicator`        | REAL    | NULL              | App-generated focus indicator       |
 | `away_duration`          | INTEGER | DEFAULT 0         | Total away time in seconds          |
@@ -199,23 +201,26 @@ The project requires session history and metrics such as total focus time, numbe
 
 ## 6.2 Session Status
 
-The `status` field may contain:
+Persisted session statuses are:
 
 ```text
-active
+running
 paused
 completed
 cancelled
 interrupted
 ```
 
-Example:
+`idle` and `starting` are transient manager states and do not create a
+`sessions` row. A row is created when setup succeeds and the session enters
+`running`. `actual_duration` accumulates only confirmed running intervals;
+`paused_duration` accumulates completed pauses. While paused, `paused_at`
+records the current pause start. Both timestamps use UTC ISO-8601.
 
-```text
-completed
-```
-
-means the user successfully ended or completed the session.
+`completed` means the configured timer reached zero. An explicit early End
+action records `cancelled`; `interrupted` is reserved for unrecoverable
+shutdown/failure. On recovery, close nonterminal rows as interrupted without
+counting unobserved process downtime as active focus time.
 
 ---
 
@@ -277,6 +282,7 @@ SCREEN_FACING_UNKNOWN
 POSTURE_GOOD
 POSTURE_SLOUCHED
 POSTURE_UNKNOWN
+POSTURE_REMINDER
 ```
 
 ### Session Activity
@@ -357,6 +363,8 @@ This table stores normal application preferences.
 | `default_break_duration`  | INTEGER | NOT NULL    | Default break duration   |
 | `away_threshold`          | INTEGER | NOT NULL    | Away detection threshold |
 | `break_reminders_enabled` | INTEGER | NOT NULL    | Enable/disable reminders |
+| `posture_reminders_enabled` | INTEGER | NOT NULL  | Enable/disable posture reminders |
+| `posture_reminder_threshold_seconds` | INTEGER | NOT NULL | Continuous reliable slouch interval before reminder |
 | `created_at`              | TEXT    | NOT NULL    | Creation timestamp       |
 | `updated_at`              | TEXT    | NOT NULL    | Last update timestamp    |
 
@@ -662,48 +670,37 @@ The exact calculation formula should be finalized during implementation and shou
 
 # 22. Session Lifecycle
 
-A typical session lifecycle is:
+Runtime lifecycle:
 
 ```text
-Created
-   ↓
-Active
-   ↓
-Paused
-   ↓
-Resumed
-   ↓
-Completed
+idle -> starting -> running <-> paused
+                         |         |
+                         +-> completed
+                         +-> cancelled
+                         +-> interrupted
 ```
 
-Alternative ending:
+Only persisted states have session rows:
 
 ```text
-Active
-   ↓
-Cancelled
+running | paused | completed | cancelled | interrupted
 ```
 
-or:
-
-```text
-Active
-   ↓
-Interrupted
-```
-
-The final database record should preserve enough information to display the session correctly in history.
+`completed` means the planned timer reached zero; an explicit early End is
+`cancelled`. Repeated or invalid transitions do not alter the row or emit a
+second event. A crash-recovered nonterminal row becomes `interrupted`, with
+elapsed time limited to confirmed running intervals.
 
 ---
 
 # 23. Session Creation
 
-When the user starts a session:
+When setup succeeds and the manager transitions to `running`:
 
-1. Create a new session record.
-2. Store the start timestamp.
+1. Create a new session record and immutable session ID.
+2. Store the UTC start timestamp; setup and permission time are excluded.
 3. Store planned duration.
-4. Set status to `active`.
+4. Set status to `running`.
 5. Initialize metrics to zero.
 6. Begin activity monitoring.
 
@@ -712,7 +709,9 @@ Example:
 ```text
 id: 15
 planned_duration: 25
-status: active
+status: running
+actual_duration: 0
+paused_duration: 0
 away_duration: 0
 screen_facing_duration: 0
 posture_event_count: 0
@@ -867,8 +866,12 @@ CREATE TABLE sessions (
     started_at TEXT NOT NULL,
     ended_at TEXT,
     planned_duration INTEGER NOT NULL,
-    actual_duration INTEGER,
-    status TEXT NOT NULL,
+    actual_duration INTEGER NOT NULL DEFAULT 0,
+    paused_at TEXT,
+    paused_duration INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL CHECK (
+        status IN ('running', 'paused', 'completed', 'cancelled', 'interrupted')
+    ),
     focus_indicator REAL,
     away_duration INTEGER DEFAULT 0,
     screen_facing_duration INTEGER DEFAULT 0,
@@ -899,6 +902,13 @@ CREATE TABLE user_preferences (
     default_break_duration INTEGER NOT NULL,
     away_threshold INTEGER NOT NULL,
     break_reminders_enabled INTEGER NOT NULL,
+    posture_reminders_enabled INTEGER NOT NULL DEFAULT 1,
+    posture_reminder_threshold_seconds INTEGER NOT NULL DEFAULT 60,
+    water_reminders_enabled INTEGER NOT NULL DEFAULT 1,
+    water_reminder_interval_minutes INTEGER NOT NULL DEFAULT 60,
+    sleep_reminders_enabled INTEGER NOT NULL DEFAULT 1,
+    sleep_reminder_time TEXT NOT NULL DEFAULT '22:00',
+    wellness_reminder_snooze_minutes INTEGER NOT NULL DEFAULT 15,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -914,6 +924,11 @@ CREATE TABLE privacy_settings (
     updated_at TEXT NOT NULL
 );
 ```
+
+The MVP reminder settings and pending reminder state currently use local
+device storage. The columns above are the proposed SQLite representation for
+the later local-database phase; raw camera frames are never part of this
+reminder state.
 
 ---
 
@@ -1331,3 +1346,51 @@ This provides the required foundation for the MVP without introducing unnecessar
 The database should remain:
 
 **Local → Minimal → Privacy-first → Queryable → Deletable → Analytics-ready**
+
+---
+
+# 44. Implemented SQLite Baseline (Day 20)
+
+The initial desktop implementation uses `@tauri-apps/plugin-sql` with SQLite.
+The `sqlite:focuslens.db` database is preloaded by Tauri and stored in the
+application's local data area. `src-tauri/migrations/0001_initial.sql` defines
+the initial schema; the ordered migration is registered in
+`src-tauri/src/lib.rs` and tracked by the SQL plugin's migration mechanism.
+Do not edit a migration that has shipped. Add a new numbered SQL migration and
+register the next version in Rust for future schema changes.
+
+The migration creates `sessions`, `activity_events`, `user_preferences`, and
+`privacy_settings`, with lifecycle/event checks, foreign-key enforcement, and
+indexes for session status/start time and activity session/time queries.
+Activity timestamps and away-period timestamps use Unix milliseconds; session
+timestamps use ISO-8601 strings. Only derived signals and away-event summaries
+are eligible for persistence. Webcam frames and recordings are never stored.
+
+`src/services/db.service.ts` owns connection initialization and typed
+repositories; `src/services/session.service.ts` exposes the session repository
+through the application's typed session-service API. Session IDs use the
+existing monitor's UUID format. Session timestamps are validated ISO-8601
+values with an explicit timezone and normalized to UTC. Session start time and
+planned duration are immutable, while updates target only supplied mutable
+fields and are restricted to the requested ID and current lifecycle state.
+Recent-session queries are bounded and ordered by start time with an ID
+tie-breaker. New rows start as `running` or `paused`; terminal transitions are
+performed through completion, cancellation, or interrupted-session recovery.
+
+The Day 20 schema explicitly declares `ON DELETE CASCADE` from activity events
+to sessions. Consequently, the supported hard-delete operation removes the
+requested session and its associated derived events, but does not affect other
+sessions.
+
+The app-level activity-monitoring provider initializes storage,
+marks leftover running or paused sessions as `interrupted` on startup, and
+observes the existing timer, CV monitor, and away detector. It persists session
+lifecycle changes and derived away events without creating a second timer or
+CV service. If local storage cannot initialize, monitoring can continue in
+memory and the application displays a local-storage warning.
+
+Preferences use validated key/value JSON storage, while privacy settings accept
+only the keys declared by the current `PrivacySettings` type. Persisting a
+privacy setting does not itself enable or implement the corresponding privacy
+control. The away-threshold control still reads its existing local preference
+store; syncing individual controls to SQLite is a separate integration step.

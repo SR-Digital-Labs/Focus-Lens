@@ -605,6 +605,43 @@ Session Summary
 
 The session should not continue processing after completion unless the user explicitly starts another session.
 
+## Session lifecycle and timing contract
+
+The session manager is authoritative for lifecycle state; the countdown timer
+is a cooperating service that owns only remaining time. The runtime state set
+is `idle`, `starting`, `running`, `paused`, `completed`, `cancelled`, and
+`interrupted`.
+
+```text
+idle -> starting -> running <-> paused
+                         |         |
+                         +-> completed (timer reaches zero)
+                         +-> cancelled (user ends early)
+                         +-> interrupted (unrecoverable failure/shutdown)
+terminal -> starting (explicit start of a new session)
+```
+
+Duration and requested camera readiness are validated during `starting`.
+When camera use is optional, a camera-disabled session may enter `running`
+without CV signals. `started_at` is recorded when the session enters
+`running`; time spent waiting for permission or setup is not elapsed focus
+time. A session ID remains unchanged across pause/resume and changes only
+when a new session starts.
+
+Elapsed focus time sums running intervals and excludes pauses. Store UTC
+ISO-8601 `started_at`, `paused_at`, and `ended_at`; store accumulated running
+and completed-pause durations separately. Timer completion is `completed`;
+an explicit early End action is `cancelled`. Repeated start, pause, resume,
+or end actions that are invalid in the current state do not mutate the
+session or emit duplicate events. Failed setup returns to `idle` without a
+history record. An uncleanly interrupted persisted session becomes
+`interrupted` on recovery, preserving only confirmed elapsed time.
+
+The manager starts, pauses, resumes, and stops the timer on valid transitions.
+Only a matching session in `running` accepts activity metrics and posture
+reminder events. Pausing suspends session accounting and reminders. The timer
+does not create history records itself; the manager finalizes and saves them.
+
 ---
 
 # 25. Session Metric Calculation

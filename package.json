@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "test": "node --test --experimental-strip-types tests/focusTimer.test.ts tests/activityEventTracker.test.ts",
+    "test": "node --test --experimental-strip-types tests/focusTimer.test.ts tests/activityEventTracker.test.ts tests/activitySessionMonitor.test.ts tests/awayDetection.test.ts tests/database.test.ts tests/sessionPersistence.test.ts tests/wellnessReminder.test.ts",
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
@@ -15,6 +15,8 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/plugin-notification": "^2.6.0",
+    "@tauri-apps/plugin-sql": "^2.6.0",
     "lucide-react": "^1.48.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

@@ -80,8 +80,8 @@ diagnostics.
 Important limitations
 ---------------------
 * The heuristic is based on a *single frame*; it is intentionally
-  stateless.  Frame-to-frame smoothing / debouncing is the responsibility
-  of a future reliability tracker (planned for Day 15).
+  stateless. Frame-to-frame smoothing and debouncing are handled by
+  ``PostureReliabilityTracker``.
 * Normalised coordinates are sensitive to camera angle and distance.
   The thresholds are initial estimates and should be re-evaluated with
   real users.
@@ -125,9 +125,8 @@ class PostureClassifier:
     Classifies posture from validated upper-body pose landmarks.
 
     The classifier is **stateless across frames**: each ``classify()`` call
-    is fully independent.  This makes it easy to test and reason about in
-    isolation.  Cross-frame smoothing belongs in a separate reliability
-    layer (planned for Day 15).
+    is fully independent. Cross-frame smoothing belongs in the separate
+    ``PostureReliabilityTracker``.
 
     Usage::
 

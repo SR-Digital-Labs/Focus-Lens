@@ -77,6 +77,20 @@ fn get_camera_status(request: ServiceRequest<EmptyPayload>) -> ServiceResponse<C
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
+        .plugin(
+            tauri_plugin_sql::Builder::default()
+                .add_migrations(
+                    "sqlite:focuslens.db",
+                    vec![tauri_plugin_sql::Migration {
+                        version: 1,
+                        description: "initial_focuslens_schema",
+                        sql: include_str!("../migrations/0001_initial.sql"),
+                        kind: tauri_plugin_sql::MigrationKind::Up,
+                    }],
+                )
+                .build(),
+        )
         .invoke_handler(tauri::generate_handler![get_camera_status])
         .run(tauri::generate_context!())
         .expect("error while running FocusLens");

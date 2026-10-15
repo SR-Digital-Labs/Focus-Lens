@@ -1,9 +1,23 @@
+export type SessionLifecycleState =
+  | 'idle'
+  | 'starting'
+  | 'running'
+  | 'paused'
+  | 'completed'
+  | 'cancelled'
+  | 'interrupted';
+
+export type PersistedSessionStatus = Exclude<SessionLifecycleState, 'idle' | 'starting'>;
+
 export interface Session {
   id: string;
-  startTime: number;
-  endTime?: number;
-  duration?: number;
-  isActive: boolean;
+  status: PersistedSessionStatus;
+  plannedDurationSeconds: number;
+  startedAt: string;
+  pausedAt: string | null;
+  endedAt: string | null;
+  elapsedSeconds: number;
+  pausedDurationSeconds: number;
 }
 
 export type FocusDurationPreset = 25 | 45 | 60;
@@ -59,12 +73,14 @@ export interface ActivityEvent {
   sessionId: string;
   timestamp: number;
   occurredAt: string;
-  type: ActivityEventType;
-  category: ActivityEventCategory;
-  stateValue: string;
+  category?: ActivityEventCategory;
+  stateValue?: string;
   previousStateValue?: string;
   confidence?: number;
   duration?: number;
+  awayStartedAt?: number;
+  thresholdReachedAt?: number;
+  endedAt?: number | null;
   metadata?: Record<string, unknown>;
 }
 

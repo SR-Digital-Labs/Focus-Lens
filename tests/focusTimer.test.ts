@@ -112,6 +112,17 @@ describe('FocusTimerService', () => {
     assert.equal(timer.start(), false);
   });
 
+  it('does not treat start from paused as a fresh session', () => {
+    timer.start();
+    timer.pause();
+    const remainingBeforeStart = timer.getState().remainingSeconds;
+
+    assert.equal(timer.start(), false);
+    assert.equal(timer.getStatus(), 'paused');
+    assert.equal(timer.getState().remainingSeconds, remainingBeforeStart);
+    assert.equal(timer.resume(), true);
+  });
+
   it('cannot change duration while running or paused', () => {
     timer.start();
     assert.equal(timer.setDuration(45), false);
