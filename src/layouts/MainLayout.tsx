@@ -5,6 +5,7 @@ import type { CameraStatus } from '../services/contracts';
 import { cameraCaptureService } from '../services/cameraCapture.service';
 import { focusTimerService } from '../services/focusTimer.service';
 import type { FocusTimerState } from '../types';
+import WellnessReminderHost from '../components/WellnessReminderHost';
 
 const MainLayout: React.FC = () => {
   const location = useLocation();
@@ -48,6 +49,7 @@ const MainLayout: React.FC = () => {
 
   return (
     <div className="app-container">
+      <WellnessReminderHost />
       {/* Sidebar */}
       <aside className="sidebar">
         <div className="sidebar-header">

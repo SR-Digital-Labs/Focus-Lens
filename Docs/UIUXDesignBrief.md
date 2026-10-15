@@ -701,6 +701,16 @@ The default interval is 60 seconds and can be changed or disabled in Settings.
 
 ---
 
+## Wellness Reminder Character
+
+Water and evening reminders use a floating, non-modal panel with an animated
+2.5D SVG puppy. The character breathes, blinks, wags its tail, and changes
+expression for water and sleep reminders. This is an accessible, lightweight
+illustration rather than a true 3D model; reduced-motion preferences disable
+its continuous animations.
+
+---
+
 # 27. Session Completion Screen
 
 When the session ends:
@@ -961,6 +971,9 @@ Privacy
 
 Notifications
 └── Notification Preferences
+    ├── Water reminder interval
+    ├── Sleep reminder time
+    └── Snooze duration
 
 Appearance
 └── Theme

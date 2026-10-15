@@ -74,6 +74,21 @@ export interface ActivitySignal {
   postureReminder?: boolean;
 }
 
+export type ActivityMonitoringStatus =
+  | 'inactive'
+  | 'paused'
+  | 'waiting'
+  | 'active'
+  | 'unavailable'
+  | 'error';
+
+export interface ActivityMonitoringState {
+  sessionId: string | null;
+  status: ActivityMonitoringStatus;
+  signal: ActivitySignal | null;
+  error: string | null;
+}
+
 export type SessionEventType =
   | 'session.started'
   | 'session.paused'

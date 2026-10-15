@@ -1,9 +1,18 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Camera, CameraOff, ShieldCheck } from 'lucide-react';
-import type { CameraStatus, Unsubscribe } from '../services/contracts';
+import type { ActivityMonitoringState, CameraStatus } from '../services/contracts';
 import { cameraCaptureService } from '../services/cameraCapture.service';
 import { focusLensService } from '../services/focusLensService';
+import { focusTimerService } from '../services/focusTimer.service';
 import { FocusTimer } from '../components/FocusTimer';
+import { ActivitySessionMonitor } from '../services/activitySessionMonitor.service';
+
+const INITIAL_ACTIVITY_STATE: ActivityMonitoringState = {
+  sessionId: null,
+  status: 'inactive',
+  signal: null,
+  error: null,
+};
 
 const FocusSession: React.FC = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -11,6 +20,7 @@ const FocusSession: React.FC = () => {
   const [cameraStatus, setCameraStatus] = useState<CameraStatus>(cameraCaptureService.getStatus());
   const [frameCount, setFrameCount] = useState(0);
   const [showPostureReminder, setShowPostureReminder] = useState(false);
+  const [activityState, setActivityState] = useState(INITIAL_ACTIVITY_STATE);
 
   useEffect(() => {
     const unsubscribeStatus = cameraCaptureService.subscribeStatus(setCameraStatus);
@@ -20,26 +30,19 @@ const FocusSession: React.FC = () => {
     const frameCountTimer = window.setInterval(() => {
       setFrameCount(frameCountRef.current);
     }, 1_000);
-    let disposed = false;
-    let unsubscribeActivity: Unsubscribe | undefined;
-    void focusLensService.activity.subscribe((event) => {
-      if (event.payload.postureReminder) {
+    const monitor = new ActivitySessionMonitor(focusLensService, focusTimerService);
+    const unsubscribeActivityState = monitor.subscribe((state) => {
+      setActivityState(state);
+      if (state.signal?.postureReminder) {
         setShowPostureReminder(true);
       }
-    }).then((unsubscribe) => {
-      if (disposed) {
-        unsubscribe();
-      } else {
-        unsubscribeActivity = unsubscribe;
-      }
-    }).catch((error: unknown) => {
-      console.error('Unable to subscribe to activity reminders:', error);
     });
+    const stopMonitoring = monitor.start();
 
     return () => {
-      disposed = true;
       window.clearInterval(frameCountTimer);
-      unsubscribeActivity?.();
+      stopMonitoring();
+      unsubscribeActivityState();
       unsubscribeStatus();
       unsubscribeFrames();
       cameraCaptureService.stopCapture();
@@ -86,6 +89,56 @@ const FocusSession: React.FC = () => {
 
         {/* Local Camera Preview & Device Status */}
         <div className="focus-session-sidebar">
+          <section className="card activity-monitor-card" aria-live="polite">
+            <div className="activity-monitor-heading">
+              <div>
+                <h2>Live activity</h2>
+                <p>
+                  {activityState.status === 'active'
+                    ? 'Derived signals for this focus session.'
+                    : activityState.status === 'paused'
+                      ? 'Monitoring pauses with your focus session.'
+                      : 'Activity indicators update during a running session.'}
+                </p>
+              </div>
+              <span className={`activity-monitor-status ${activityState.status}`}>
+                {activityState.status}
+              </span>
+            </div>
+
+            <dl className="activity-indicators">
+              <div>
+                <dt>Person</dt>
+                <dd>{activityState.signal?.personPresence ?? 'unknown'}</dd>
+              </div>
+              <div>
+                <dt>Screen-facing</dt>
+                <dd>{activityState.signal?.screenFacing ?? 'unknown'}</dd>
+              </div>
+              <div>
+                <dt>Posture</dt>
+                <dd>{activityState.signal?.posture ?? 'unknown'}</dd>
+              </div>
+              {activityState.signal?.confidence !== undefined && (
+                <div>
+                  <dt>Confidence</dt>
+                  <dd>{Math.round(activityState.signal.confidence * 100)}%</dd>
+                </div>
+              )}
+            </dl>
+
+            {activityState.signal?.occurredAt && (
+              <p className="activity-updated-at">
+                Updated {new Date(activityState.signal.occurredAt).toLocaleTimeString()}
+              </p>
+            )}
+            {activityState.error && (
+              <p className="activity-monitor-error" role="status">
+                {activityState.error}
+              </p>
+            )}
+          </section>
+
           <section className="card focus-camera-card">
             <div className="focus-camera-heading">
               <div>

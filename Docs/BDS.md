@@ -904,6 +904,11 @@ CREATE TABLE user_preferences (
     break_reminders_enabled INTEGER NOT NULL,
     posture_reminders_enabled INTEGER NOT NULL DEFAULT 1,
     posture_reminder_threshold_seconds INTEGER NOT NULL DEFAULT 60,
+    water_reminders_enabled INTEGER NOT NULL DEFAULT 1,
+    water_reminder_interval_minutes INTEGER NOT NULL DEFAULT 60,
+    sleep_reminders_enabled INTEGER NOT NULL DEFAULT 1,
+    sleep_reminder_time TEXT NOT NULL DEFAULT '22:00',
+    wellness_reminder_snooze_minutes INTEGER NOT NULL DEFAULT 15,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -919,6 +924,11 @@ CREATE TABLE privacy_settings (
     updated_at TEXT NOT NULL
 );
 ```
+
+The MVP reminder settings and pending reminder state currently use local
+device storage. The columns above are the proposed SQLite representation for
+the later local-database phase; raw camera frames are never part of this
+reminder state.
 
 ---
 

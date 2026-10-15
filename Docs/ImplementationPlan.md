@@ -676,11 +676,14 @@ the same lifecycle names.
 
 ### Ragavi
 
-* Connect CV signals to the active session.
+* Consume CV activity signals only for the matching running focus session.
+* Reject stale, duplicate, invalid, or mismatched-session signals; represent unavailable CV as unknown.
 
 ### Deliverable
 
-Focus session + CV monitoring integration.
+Session-scoped live activity indicators and CV signal handling in the frontend.
+The Python-to-Tauri event bridge remains part of desktop integration and must
+forward only derived signals with the active session ID.
 
 ---
 
@@ -942,6 +945,11 @@ Build:
 ### Ragavi
 
 Connect settings to local preferences.
+
+The current wellness reminder MVP stores validated preferences and reminder
+state in local device storage until the SQLite implementation phase. Water
+intervals count only while the focus timer is running; sleep reminders use the
+computer's local clock.
 
 ---
 
