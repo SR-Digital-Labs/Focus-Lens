@@ -13,9 +13,9 @@ import { focusTimerService } from '../services/focusTimer.service';
 import {
   activityEventRepository,
   dbService,
-  sessionRepository,
 } from '../services/db.service';
 import { SessionPersistenceService } from '../services/sessionPersistence.service';
+import { sessionService } from '../services/session.service';
 
 const INITIAL_ACTIVITY_STATE: ActivityMonitoringState = {
   sessionId: null,
@@ -45,7 +45,7 @@ export function ActivityMonitoringProvider({ children }: { children: ReactNode }
       let persistenceAvailable = false;
       try {
         await dbService.initialize();
-        await sessionRepository.interruptUnfinished();
+        await sessionService.interruptUnfinished();
         persistenceAvailable = true;
       } catch (error) {
         console.error('Unable to initialize local session storage:', error);
@@ -78,7 +78,7 @@ export function ActivityMonitoringProvider({ children }: { children: ReactNode }
             activity: monitor,
             timer: focusTimerService,
             away: awayDetector,
-            sessions: sessionRepository,
+            sessions: sessionService,
             events: activityEventRepository,
             onError: (error) => {
               console.error('Unable to persist focus-session activity:', error);

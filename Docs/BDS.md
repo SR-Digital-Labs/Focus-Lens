@@ -1367,7 +1367,22 @@ timestamps use ISO-8601 strings. Only derived signals and away-event summaries
 are eligible for persistence. Webcam frames and recordings are never stored.
 
 `src/services/db.service.ts` owns connection initialization and typed
-repositories. The app-level activity-monitoring provider initializes storage,
+repositories; `src/services/session.service.ts` exposes the session repository
+through the application's typed session-service API. Session IDs use the
+existing monitor's UUID format. Session timestamps are validated ISO-8601
+values with an explicit timezone and normalized to UTC. Session start time and
+planned duration are immutable, while updates target only supplied mutable
+fields and are restricted to the requested ID and current lifecycle state.
+Recent-session queries are bounded and ordered by start time with an ID
+tie-breaker. New rows start as `running` or `paused`; terminal transitions are
+performed through completion, cancellation, or interrupted-session recovery.
+
+The Day 20 schema explicitly declares `ON DELETE CASCADE` from activity events
+to sessions. Consequently, the supported hard-delete operation removes the
+requested session and its associated derived events, but does not affect other
+sessions.
+
+The app-level activity-monitoring provider initializes storage,
 marks leftover running or paused sessions as `interrupted` on startup, and
 observes the existing timer, CV monitor, and away detector. It persists session
 lifecycle changes and derived away events without creating a second timer or

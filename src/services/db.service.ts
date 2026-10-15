@@ -43,8 +43,22 @@ export interface SessionQuery {
   limit?: number;
 }
 
+export type SessionUpdate = Partial<
+  Pick<
+    Session,
+    'status' | 'pausedAt' | 'endedAt' | 'elapsedSeconds' | 'pausedDurationSeconds'
+  >
+>;
+
 const DATABASE_PATH = 'sqlite:focuslens.db';
 const SENSITIVE_PREFERENCE_KEY = /(password|secret|token|credential|api[-_.]?key)/i;
+const SESSION_UPDATE_COLUMNS = {
+  status: 'status',
+  pausedAt: 'paused_at',
+  endedAt: 'ended_at',
+  elapsedSeconds: 'elapsed_seconds',
+  pausedDurationSeconds: 'paused_duration_seconds',
+} as const satisfies Record<keyof SessionUpdate, string>;
 const PRIVACY_SETTING_KEYS = [
   'saveVideoLocally',
   'blurBackgroundInVideo',
@@ -148,8 +162,14 @@ export class SessionRepository {
     this.database = database;
   }
 
-  async create(session: Session): Promise<void> {
+  async create(session: Session): Promise<Session> {
     const value = normalizeSession(session);
+    if (value.status !== 'running' && value.status !== 'paused') {
+      throw new Error('New focus sessions must start in running or paused state.');
+    }
+    if (await this.getById(value.id)) {
+      throw new Error(`Focus session "${value.id}" already exists.`);
+    }
     try {
       await this.database.execute(
         `INSERT INTO sessions (
@@ -170,6 +190,7 @@ export class SessionRepository {
     } catch (error) {
       throw new Error(`Unable to create focus session "${value.id}".`, { cause: error });
     }
+    return value;
   }
 
   async getById(id: string): Promise<Session | null> {
@@ -209,46 +230,43 @@ export class SessionRepository {
       `SELECT id, status, planned_duration_seconds, started_at, paused_at, ended_at,
               elapsed_seconds, paused_duration_seconds
        FROM sessions ${where}
-       ORDER BY started_at DESC
+       ORDER BY started_at DESC, id ASC
        LIMIT $${values.length}`,
       values,
     );
     return rows.map(sessionFromRow);
   }
 
-  async update(session: Session): Promise<void> {
-    const value = normalizeSession(session);
-    const current = await this.getById(value.id);
+  async update(id: string, changes: SessionUpdate): Promise<Session> {
+    validateId(id, 'session');
+    validateSessionUpdate(changes);
+    const current = await this.getById(id);
     if (!current) {
-      throw new Error(`Focus session "${value.id}" does not exist.`);
+      throw new Error(`Focus session "${id}" does not exist.`);
     }
-    if (
-      current.startedAt !== value.startedAt
-      || current.plannedDurationSeconds !== value.plannedDurationSeconds
-    ) {
-      throw new Error('A focus session start time and planned duration are immutable.');
+    if (isTerminalSessionStatus(current.status)) {
+      throw new Error(`Terminal focus session "${id}" cannot be updated.`);
     }
+    const value = normalizeSession({ ...current, ...changes });
     if (!isAllowedSessionTransition(current.status, value.status)) {
       throw new Error(`Invalid focus-session transition: ${current.status} -> ${value.status}.`);
     }
+    const fields = Object.keys(changes) as (keyof SessionUpdate)[];
+    const assignments = fields.map(
+      (field, index) => `${SESSION_UPDATE_COLUMNS[field]} = $${index + 1}`,
+    );
+    assignments.push(`updated_at = CURRENT_TIMESTAMP`);
+    const values: unknown[] = fields.map((field) => value[field]);
+    values.push(id, current.status);
     const result = await this.database.execute(
-      `UPDATE sessions
-       SET status = $1, paused_at = $2, ended_at = $3, elapsed_seconds = $4,
-           paused_duration_seconds = $5, updated_at = CURRENT_TIMESTAMP
-       WHERE id = $6 AND status = $7`,
-      [
-        value.status,
-        value.pausedAt,
-        value.endedAt,
-        value.elapsedSeconds,
-        value.pausedDurationSeconds,
-        value.id,
-        current.status,
-      ],
+      `UPDATE sessions SET ${assignments.join(', ')}
+       WHERE id = $${values.length - 1} AND status = $${values.length}`,
+      values,
     );
     if (result.rowsAffected !== 1) {
-      throw new Error(`Focus session "${value.id}" changed before it could be updated.`);
+      throw new Error(`Focus session "${id}" changed before it could be updated.`);
     }
+    return value;
   }
 
   async complete(id: string, endedAt: string, elapsedSeconds: number): Promise<void> {
@@ -287,12 +305,20 @@ export class SessionRepository {
     if (!current) {
       throw new Error(`Focus session "${id}" does not exist.`);
     }
-    await this.update({
-      ...current,
+    const normalizedEnd = normalizeTimestamp(endedAt, 'session end');
+    let pausedDurationSeconds = current.pausedDurationSeconds;
+    if (current.pausedAt) {
+      pausedDurationSeconds += Math.max(
+        0,
+        Date.parse(normalizedEnd) - Date.parse(current.pausedAt),
+      ) / 1_000;
+    }
+    await this.update(id, {
       status,
       pausedAt: null,
-      endedAt,
+      endedAt: normalizedEnd,
       elapsedSeconds,
+      pausedDurationSeconds,
     });
   }
 }
@@ -518,13 +544,35 @@ function isAllowedSessionTransition(
   from: PersistedSessionStatus,
   to: PersistedSessionStatus,
 ): boolean {
-  if (from === to) {
-    return true;
+  if (isTerminalSessionStatus(from)) {
+    return false;
   }
+  if (from === to) return true;
   if (from === 'running' || from === 'paused') {
     return ['running', 'paused', 'completed', 'cancelled', 'interrupted'].includes(to);
   }
   return false;
+}
+
+function isTerminalSessionStatus(status: PersistedSessionStatus): boolean {
+  return status === 'completed' || status === 'cancelled' || status === 'interrupted';
+}
+
+function validateSessionUpdate(changes: SessionUpdate): void {
+  if (typeof changes !== 'object' || changes === null || Array.isArray(changes)) {
+    throw new Error('Session updates must be an object of supported fields.');
+  }
+  const allowedKeys = new Set([
+    'status',
+    'pausedAt',
+    'endedAt',
+    'elapsedSeconds',
+    'pausedDurationSeconds',
+  ]);
+  const keys = Object.keys(changes);
+  if (keys.length === 0 || keys.some((key) => !allowedKeys.has(key))) {
+    throw new Error('Session updates must include supported mutable fields only.');
+  }
 }
 
 function validatePersistedStatus(status: string): asserts status is PersistedSessionStatus {
@@ -534,12 +582,21 @@ function validatePersistedStatus(status: string): asserts status is PersistedSes
 }
 
 function validateId(id: string, label: string): void {
-  if (typeof id !== 'string' || !id.trim() || id.length > 128) {
+  if (typeof id !== 'string' || !id.trim() || id !== id.trim() || id.length > 128) {
     throw new Error(`${label} ID must be a non-empty string of at most 128 characters.`);
+  }
+  if (label === 'session' && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
+    throw new Error('Session ID must be a valid UUID generated by the existing session monitor.');
   }
 }
 
 function normalizeTimestamp(value: string, label: string): string {
+  if (
+    typeof value !== 'string'
+    || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/i.test(value)
+  ) {
+    throw new Error(`${label} timestamp must be an ISO-8601 date with an explicit timezone.`);
+  }
   const parsed = Date.parse(value);
   if (!Number.isFinite(parsed)) {
     throw new Error(`${label} timestamp must be a valid ISO-compatible date.`);

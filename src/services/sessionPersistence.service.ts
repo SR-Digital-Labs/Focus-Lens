@@ -1,7 +1,7 @@
 import type { FocusTimerState } from '../types';
 import type { ActivityMonitoringState, Unsubscribe } from './contracts';
 import type { AwayDetectionEvent, AwayDetectionSnapshot } from './awayDetection.service';
-import type { ActivityEventRepository, SessionRepository } from './db.service';
+import type { ActivityEventRepository, SessionUpdate } from './db.service';
 import type { Session } from '../types';
 
 interface SessionPersistenceOptions {
@@ -15,7 +15,10 @@ interface SessionPersistenceOptions {
   away: {
     subscribe(listener: (snapshot: AwayDetectionSnapshot) => void): Unsubscribe;
   };
-  sessions: Pick<SessionRepository, 'create' | 'update'>;
+  sessions: {
+    create(session: Session): Promise<unknown>;
+    update(id: string, changes: SessionUpdate): Promise<unknown>;
+  };
   events: Pick<ActivityEventRepository, 'record'>;
   now?: () => number;
   onError?: (error: Error) => void;
@@ -146,7 +149,9 @@ export class SessionPersistenceService {
     this.lastObservedElapsedSeconds = timerState.elapsedSeconds;
     this.currentSession = session;
     this.lastPersistedElapsedSecond = session.elapsedSeconds;
-    this.enqueue(() => this.sessions.create({ ...session }));
+    this.enqueue(async () => {
+      await this.sessions.create({ ...session });
+    });
   }
 
   private updateActiveSession(
@@ -186,7 +191,9 @@ export class SessionPersistenceService {
       || next.pausedDurationSeconds !== current.pausedDurationSeconds;
     if (stateChanged || elapsedCheckpoint > this.lastPersistedElapsedSecond) {
       this.lastPersistedElapsedSecond = elapsedCheckpoint;
-      this.enqueue(() => this.sessions.update({ ...next }));
+      this.enqueue(async () => {
+        await this.sessions.update(next.id, sessionUpdateFrom(next));
+      });
     }
   }
 
@@ -220,7 +227,9 @@ export class SessionPersistenceService {
       pausedDurationSeconds,
     };
     this.currentSession = ended;
-    this.enqueue(() => this.sessions.update({ ...ended }));
+    this.enqueue(async () => {
+      await this.sessions.update(ended.id, sessionUpdateFrom(ended));
+    });
   }
 
   private terminalStatus(): 'completed' | 'cancelled' | 'interrupted' {
@@ -264,4 +273,14 @@ export class SessionPersistenceService {
         this.onError(normalized);
       });
   }
+}
+
+function sessionUpdateFrom(session: Session): SessionUpdate {
+  return {
+    status: session.status,
+    pausedAt: session.pausedAt,
+    endedAt: session.endedAt,
+    elapsedSeconds: session.elapsedSeconds,
+    pausedDurationSeconds: session.pausedDurationSeconds,
+  };
 }

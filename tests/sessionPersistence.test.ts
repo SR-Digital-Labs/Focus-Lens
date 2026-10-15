@@ -106,8 +106,10 @@ describe('SessionPersistenceService', () => {
         async create(session) {
           sessions.set(session.id, { ...session });
         },
-        async update(session) {
-          sessions.set(session.id, { ...session });
+        async update(id, changes) {
+          const session = sessions.get(id);
+          assert.ok(session);
+          sessions.set(id, { ...session, ...changes });
         },
       },
       events: {

@@ -762,7 +762,16 @@ privacy_settings
 
 ### Ragavi
 
-* Implement session repository/service.
+* Implement the typed SQLite session repository and service using the Day 20
+  schema and the existing focus-session UUIDs.
+* Support create, retrieve, bounded/filterable list, mutable-field update,
+  complete, cancel, unfinished-session recovery, and delete operations.
+* Validate ISO-8601 timestamps and lifecycle transitions; keep session IDs,
+  start time, and planned duration immutable after creation.
+* Restrict each update/delete to its session ID and report missing records,
+  invalid transitions, and database failures explicitly.
+* Preserve the schema's declared `ON DELETE CASCADE` behavior for associated
+  activity events; do not change this policy without a later migration.
 
 Support:
 
