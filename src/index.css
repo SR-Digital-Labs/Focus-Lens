@@ -203,6 +203,16 @@ body {
   background-color: var(--accent-hover);
 }
 
+/* Explicit alias for the primary CTA button (accent background) */
+.btn-primary {
+  background-color: var(--accent-color);
+  color: #ffffff;
+}
+
+.btn-primary:hover {
+  background-color: var(--accent-hover);
+}
+
 .grid {
   display: grid;
   gap: 24px;
@@ -434,7 +444,8 @@ body {
   margin-bottom: 20px;
 }
 
-.focus-camera-heading h1 {
+.focus-camera-heading h1,
+.focus-camera-heading h2 {
   margin-bottom: 4px;
   font-size: 1.5rem;
 }

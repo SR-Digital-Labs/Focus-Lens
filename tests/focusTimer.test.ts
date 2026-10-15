@@ -184,4 +184,77 @@ describe('FocusTimerService', () => {
     assert.equal(state.formattedRemaining, '00:00');
     assert.equal(state.progress, 100);
   });
+
+  it('preserves exact remaining time across pause and resume cycles', () => {
+    timer.setDuration(25);
+    timer.start();
+
+    // Simulate 500 seconds remaining
+    // @ts-expect-error accessing private property for unit test
+    timer._targetDeadline = Date.now() + 500 * 1000;
+    timer.pause();
+
+    assert.equal(timer.getStatus(), 'paused');
+    const remainingAtPause = timer.getState().remainingSeconds;
+    assert.equal(remainingAtPause, 500);
+
+    // Resuming establishes new deadline using exact remaining seconds
+    timer.resume();
+    assert.equal(timer.getStatus(), 'running');
+    assert.equal(timer.getState().remainingSeconds, 500);
+
+    // Pause again
+    timer.pause();
+    assert.equal(timer.getState().remainingSeconds, 500);
+  });
+
+  it('rapid calls do not create duplicate timers or corrupt state', () => {
+    timer.start();
+    assert.equal(timer.start(), false);
+    assert.equal(timer.start(), false);
+
+    timer.pause();
+    assert.equal(timer.pause(), false);
+    assert.equal(timer.pause(), false);
+
+    timer.resume();
+    assert.equal(timer.resume(), false);
+    assert.equal(timer.resume(), false);
+  });
+
+  it('reset() returns completed timer back to idle with full duration restored', () => {
+    timer.setDuration(45);
+    timer.start();
+
+    // Simulate completion
+    // @ts-expect-error accessing private property for unit test
+    timer._targetDeadline = Date.now() - 1000;
+    // @ts-expect-error calling private tick
+    timer.tick();
+
+    assert.equal(timer.getStatus(), 'completed');
+    assert.equal(timer.getState().remainingSeconds, 0);
+
+    timer.reset();
+    assert.equal(timer.getStatus(), 'idle');
+    assert.equal(timer.getState().durationMinutes, 45);
+    assert.equal(timer.getState().remainingSeconds, 45 * 60);
+    assert.equal(timer.getState().progress, 0);
+  });
+
+  it('tick() does not update state when timer is idle or paused', () => {
+    // Idle
+    // @ts-expect-error calling private tick
+    timer.tick();
+    assert.equal(timer.getStatus(), 'idle');
+
+    // Paused
+    timer.start();
+    timer.pause();
+    const pausedRemaining = timer.getState().remainingSeconds;
+    // @ts-expect-error calling private tick
+    timer.tick();
+    assert.equal(timer.getState().remainingSeconds, pausedRemaining);
+  });
 });
+

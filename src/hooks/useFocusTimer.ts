@@ -32,6 +32,10 @@ export function useFocusTimer() {
   }, []);
 
   const applyCustomDuration = useCallback((inputMinutes?: number) => {
+    if (inputMinutes === undefined && !customMinutes.trim()) {
+      setValidationError('Please enter a duration in minutes.');
+      return false;
+    }
     const rawValue = inputMinutes !== undefined ? inputMinutes : Number(customMinutes);
     const validation = validateCustomDuration(rawValue);
 

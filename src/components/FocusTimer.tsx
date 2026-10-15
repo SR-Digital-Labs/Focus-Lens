@@ -21,6 +21,7 @@ export const FocusTimer: React.FC = () => {
     customMinutes,
     setCustomMinutes,
     validationError,
+    setValidationError,
     selectPreset,
     applyCustomDuration,
     start,
@@ -54,8 +55,10 @@ export const FocusTimer: React.FC = () => {
   const handleCustomToggle = () => {
     if (!isConfigurable) return;
     setIsCustomSelected(true);
-    if (customMinutes) {
-      applyCustomDuration();
+    if (customMinutes.trim()) {
+      applyCustomDuration(Number(customMinutes));
+    } else {
+      setValidationError('Please enter a duration in minutes.');
     }
   };
 
@@ -176,9 +179,12 @@ export const FocusTimer: React.FC = () => {
                   className={`custom-duration-input ${validationError ? 'error' : ''}`}
                   value={customMinutes}
                   onChange={(e) => {
-                    setCustomMinutes(e.target.value);
-                    if (e.target.value) {
-                      applyCustomDuration(Number(e.target.value));
+                    const val = e.target.value;
+                    setCustomMinutes(val);
+                    if (val.trim()) {
+                      applyCustomDuration(Number(val));
+                    } else {
+                      setValidationError('Please enter a duration in minutes.');
                     }
                   }}
                   aria-label="Custom duration in minutes"
@@ -206,7 +212,7 @@ export const FocusTimer: React.FC = () => {
             type="button"
             className="btn btn-primary btn-timer-primary"
             onClick={start}
-            disabled={!!validationError}
+            disabled={!!validationError || (isCustomSelected && !customMinutes.trim())}
           >
             <Play size={20} />
             Start Focus Session
