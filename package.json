@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "test": "node --test --experimental-strip-types tests/focusTimer.test.ts",
+    "test": "node --test --experimental-strip-types tests/focusTimer.test.ts tests/activityEventTracker.test.ts",
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",

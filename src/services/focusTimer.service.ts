@@ -19,7 +19,15 @@ import {
   MIN_FOCUS_DURATION_MINUTES,
   type FocusTimerState,
   type FocusTimerStatus,
+  type Session,
+  type SessionLifecycleEventType,
 } from '../types/index.ts';
+
+export interface SessionLifecycleEvent {
+  type: SessionLifecycleEventType;
+  sessionId: string;
+  timestamp: number;
+}
 
 export function formatTimerDisplay(totalSeconds: number): string {
   const safeSeconds = Math.max(0, Math.floor(totalSeconds));
@@ -61,6 +69,9 @@ export class FocusTimerService {
   private _targetDeadline: number | null = null;
   private _intervalId: ReturnType<typeof globalThis.setInterval> | null = null;
   private _listeners = new Set<(state: FocusTimerState) => void>();
+  private _lifecycleListeners = new Set<(event: SessionLifecycleEvent) => void>();
+  private _sessionId: string | null = null;
+  private _sessionStartTime: number | null = null;
 
   constructor() {
     this._remainingSeconds = this._totalSeconds;
@@ -74,6 +85,22 @@ export class FocusTimerService {
     return this._status;
   }
 
+  public getSessionId(): string | null {
+    return this._sessionId;
+  }
+
+  public getActiveSession(): Session | null {
+    if (!this._sessionId || !this._sessionStartTime) {
+      return null;
+    }
+    return {
+      id: this._sessionId,
+      startTime: this._sessionStartTime,
+      duration: this._durationMinutes,
+      isActive: this._status === 'running',
+    };
+  }
+
   public getState(): FocusTimerState {
     const elapsedSeconds = Math.max(0, this._totalSeconds - this._remainingSeconds);
     const progress =
@@ -83,6 +110,7 @@ export class FocusTimerService {
 
     return {
       status: this._status,
+      sessionId: this._sessionId,
       durationMinutes: this._durationMinutes,
       totalSeconds: this._totalSeconds,
       remainingSeconds: this._remainingSeconds,
@@ -120,7 +148,7 @@ export class FocusTimerService {
   // Controls
   // ---------------------------------------------------------------------------
 
-  public start(): boolean {
+  public start(customSessionId?: string): boolean {
     // Prevent starting if already running or if duration is invalid
     if (this._status === 'running') {
       return false;
@@ -133,9 +161,12 @@ export class FocusTimerService {
     this._remainingSeconds = this._totalSeconds;
     this._targetDeadline = Date.now() + this._remainingSeconds * 1000;
     this._status = 'running';
+    this._sessionId = customSessionId || `session_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    this._sessionStartTime = Date.now();
 
     this.startTicker();
     this.notify();
+    this.notifyLifecycle('SESSION_STARTED');
     return true;
   }
 
@@ -154,6 +185,7 @@ export class FocusTimerService {
     this._targetDeadline = null;
     this.stopTicker();
     this.notify();
+    this.notifyLifecycle('SESSION_PAUSED');
     return true;
   }
 
@@ -165,6 +197,7 @@ export class FocusTimerService {
     if (this._remainingSeconds <= 0) {
       this._status = 'completed';
       this.notify();
+      this.notifyLifecycle('SESSION_COMPLETED');
       return false;
     }
 
@@ -174,6 +207,7 @@ export class FocusTimerService {
 
     this.startTicker();
     this.notify();
+    this.notifyLifecycle('SESSION_RESUMED');
     return true;
   }
 
@@ -187,6 +221,9 @@ export class FocusTimerService {
     this._targetDeadline = null;
     this._remainingSeconds = this._totalSeconds;
     this.notify();
+    this.notifyLifecycle('SESSION_ENDED');
+    this._sessionId = null;
+    this._sessionStartTime = null;
   }
 
   public reset(): void {
@@ -207,6 +244,13 @@ export class FocusTimerService {
     };
   }
 
+  public subscribeLifecycle(listener: (event: SessionLifecycleEvent) => void): () => void {
+    this._lifecycleListeners.add(listener);
+    return () => {
+      this._lifecycleListeners.delete(listener);
+    };
+  }
+
   private notify(): void {
     const currentState = this.getState();
     this._listeners.forEach((listener) => {
@@ -214,6 +258,22 @@ export class FocusTimerService {
         listener(currentState);
       } catch (err) {
         console.error('Error in FocusTimerService subscriber:', err);
+      }
+    });
+  }
+
+  private notifyLifecycle(type: SessionLifecycleEventType): void {
+    if (!this._sessionId) return;
+    const event: SessionLifecycleEvent = {
+      type,
+      sessionId: this._sessionId,
+      timestamp: Date.now(),
+    };
+    this._lifecycleListeners.forEach((listener) => {
+      try {
+        listener(event);
+      } catch (err) {
+        console.error('Error in FocusTimerService lifecycle subscriber:', err);
       }
     });
   }
@@ -253,6 +313,7 @@ export class FocusTimerService {
       this._targetDeadline = null;
       this.stopTicker();
       this.notify();
+      this.notifyLifecycle('SESSION_COMPLETED');
       return;
     }
 

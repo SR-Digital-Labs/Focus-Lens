@@ -16,6 +16,7 @@ export type FocusTimerStatus = 'idle' | 'running' | 'paused' | 'completed';
 
 export interface FocusTimerState {
   status: FocusTimerStatus;
+  sessionId: string | null;
   durationMinutes: number;
   totalSeconds: number;
   remainingSeconds: number;
@@ -24,14 +25,56 @@ export interface FocusTimerState {
   formattedRemaining: string;
 }
 
-export type ActivityEventType = 'focused' | 'distracted' | 'away';
+// Session Lifecycle Event Types (from BDS.md Section 8 and contracts.ts)
+export type SessionLifecycleEventType =
+  | 'SESSION_STARTED'
+  | 'SESSION_PAUSED'
+  | 'SESSION_RESUMED'
+  | 'SESSION_ENDED'
+  | 'SESSION_COMPLETED';
+
+// Person Presence Event Types (from BDS.md Section 8 and Python PersonState)
+export type PersonEventType = 'PERSON_PRESENT' | 'PERSON_AWAY' | 'PERSON_UNKNOWN';
+
+// Screen Facing Event Types (from BDS.md Section 8 and Python ScreenFacingState)
+export type ScreenFacingEventType = 'SCREEN_FACING' | 'LOOKING_AWAY' | 'SCREEN_FACING_UNKNOWN';
+
+// Posture Event Types (from BDS.md Section 8 and Python PostureState)
+export type PostureEventType = 'POSTURE_GOOD' | 'POSTURE_SLOUCHED' | 'POSTURE_UNKNOWN';
+
+// Unified ActivityEventType preserving backwards compatibility with legacy strings
+export type ActivityEventType =
+  | PersonEventType
+  | ScreenFacingEventType
+  | PostureEventType
+  | SessionLifecycleEventType
+  | 'focused'
+  | 'distracted'
+  | 'away';
+
+export type ActivityEventCategory = 'person' | 'screen_facing' | 'posture' | 'session';
 
 export interface ActivityEvent {
   id: string;
   sessionId: string;
   timestamp: number;
+  occurredAt: string;
   type: ActivityEventType;
+  category: ActivityEventCategory;
+  stateValue: string;
+  previousStateValue?: string;
+  confidence?: number;
   duration?: number;
+  metadata?: Record<string, unknown>;
+}
+
+export interface DetectionSignalInput {
+  personPresence?: 'present' | 'away' | 'unknown' | 'PRESENT' | 'AWAY' | 'UNKNOWN' | null;
+  screenFacing?: 'facing' | 'looking_away' | 'unknown' | 'SCREEN_FACING' | 'LOOKING_AWAY' | 'UNKNOWN' | null;
+  posture?: 'good' | 'slouched' | 'unknown' | 'GOOD_POSTURE' | 'SLOUCHED_POSTURE' | 'SLOUCHED' | 'UNKNOWN' | null;
+  confidence?: number | null;
+  timestamp?: number | string | null;
+  occurredAt?: string | null;
 }
 
 export interface PersonPresence {
