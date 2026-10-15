@@ -93,8 +93,16 @@ export class FocusTimerService {
     if (!this._sessionId || !this._sessionStartTime) {
       return null;
     }
+    const elapsedSeconds = Math.max(0, this._totalSeconds - this._remainingSeconds);
     return {
       id: this._sessionId,
+      status: this._status === 'running' ? 'running' : 'paused',
+      plannedDurationSeconds: this._totalSeconds,
+      startedAt: new Date(this._sessionStartTime).toISOString(),
+      pausedAt: this._status === 'paused' ? new Date().toISOString() : null,
+      endedAt: null,
+      elapsedSeconds,
+      pausedDurationSeconds: 0,
       startTime: this._sessionStartTime,
       duration: this._durationMinutes,
       isActive: this._status === 'running',

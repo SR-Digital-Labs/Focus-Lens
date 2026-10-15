@@ -18,6 +18,9 @@ export interface Session {
   endedAt: string | null;
   elapsedSeconds: number;
   pausedDurationSeconds: number;
+  startTime?: number;
+  duration?: number;
+  isActive?: boolean;
 }
 
 export type FocusDurationPreset = 25 | 45 | 60;
@@ -72,7 +75,8 @@ export interface ActivityEvent {
   id: string;
   sessionId: string;
   timestamp: number;
-  occurredAt: string;
+  occurredAt?: string;
+  type: ActivityEventType;
   category?: ActivityEventCategory;
   stateValue?: string;
   previousStateValue?: string;
