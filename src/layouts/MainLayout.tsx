@@ -6,6 +6,7 @@ import { cameraCaptureService } from '../services/cameraCapture.service';
 import { focusTimerService } from '../services/focusTimer.service';
 import type { FocusTimerState } from '../types';
 import WellnessReminderHost from '../components/WellnessReminderHost';
+import { ActivityMonitoringProvider } from '../context/ActivityMonitoringContext';
 
 const MainLayout: React.FC = () => {
   const location = useLocation();
@@ -48,8 +49,9 @@ const MainLayout: React.FC = () => {
   };
 
   return (
-    <div className="app-container">
-      <WellnessReminderHost />
+    <ActivityMonitoringProvider>
+      <div className="app-container">
+        <WellnessReminderHost />
       {/* Sidebar */}
       <aside className="sidebar">
         <div className="sidebar-header">
@@ -112,7 +114,8 @@ const MainLayout: React.FC = () => {
           <Outlet />
         </div>
       </main>
-    </div>
+      </div>
+    </ActivityMonitoringProvider>
   );
 };
 

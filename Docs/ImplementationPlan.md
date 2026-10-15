@@ -705,6 +705,15 @@ Away Duration
 
 The away threshold should be configurable.
 
+The initial threshold defaults to **5 minutes** and is configurable in local
+settings. Count only fresh, reliable `AWAY` signals in a running focus session;
+signals older than 30 seconds are ignored and cannot extend a period. Exclude
+paused time and reset the continuous period on reliable `PRESENT` or
+unreliable/unavailable evidence. Emit one threshold event per continuous away
+period using the existing activity-event shape, with its session ID, start
+time, threshold time, and duration in seconds. Keep these events in memory
+until the planned activity-event storage phase; never persist raw camera frames.
+
 ### Deliverable
 
 Automatic away tracking.

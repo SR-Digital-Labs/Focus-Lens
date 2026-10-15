@@ -45,7 +45,10 @@ export interface ActivityEvent {
   sessionId: string;
   timestamp: number;
   type: ActivityEventType;
-  duration?: number;
+  duration?: number; // seconds
+  awayStartedAt?: number;
+  thresholdReachedAt?: number;
+  endedAt?: number | null;
 }
 
 export interface PersonPresence {

@@ -1,5 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { Bell, Clock3, Moon, Save, Waves } from 'lucide-react';
+import { Bell, Clock3, Moon, Save, Timer, Waves } from 'lucide-react';
+import {
+  DEFAULT_AWAY_THRESHOLD_MINUTES,
+  getAwayDetectionStorage,
+  readAwayThresholdMinutes,
+  saveAwayThresholdMinutes,
+} from '../services/awayDetection.service';
 import {
   getWellnessReminderService,
   type WellnessSettings,
@@ -16,6 +22,14 @@ const Settings: React.FC = () => {
     service.getSnapshot().settings,
   );
   const [message, setMessage] = useState<string | null>(null);
+  const [awayThresholdMinutes, setAwayThresholdMinutes] = useState(() => {
+    try {
+      return readAwayThresholdMinutes(getAwayDetectionStorage());
+    } catch (error) {
+      console.error('Unable to load away-detection settings:', error);
+      return DEFAULT_AWAY_THRESHOLD_MINUTES;
+    }
+  });
   const [notificationPermission, setNotificationPermission] = useState<
     NotificationPermission | 'unsupported' | 'unknown'
   >('unknown');
@@ -41,6 +55,17 @@ const Settings: React.FC = () => {
 
   const update = (changes: Partial<WellnessSettings>) => {
     saveSettings({ ...settings, ...changes });
+  };
+
+  const updateAwayThreshold = (minutes: number) => {
+    try {
+      saveAwayThresholdMinutes(getAwayDetectionStorage(), minutes);
+      setAwayThresholdMinutes(minutes);
+      setMessage('Away-detection threshold saved on this device.');
+    } catch (error) {
+      console.error('Unable to save away-detection threshold:', error);
+      setMessage(error instanceof Error ? error.message : 'Unable to save away-detection threshold.');
+    }
   };
 
   const enableSystemNotifications = async () => {
@@ -122,6 +147,31 @@ const Settings: React.FC = () => {
             onChange={(event) => update({ sleepTime: event.target.value })}
           />
         </label>
+      </section>
+
+      <section className="card settings-group">
+        <div className="settings-group-heading">
+          <Timer size={20} aria-hidden="true" />
+          <div>
+            <h2>Away detection</h2>
+            <p>Record an away event only after reliable absence lasts this long.</p>
+          </div>
+        </div>
+        <label className="settings-field">
+          <span>Away threshold</span>
+          <select
+            value={awayThresholdMinutes}
+            onChange={(event) => updateAwayThreshold(Number(event.target.value))}
+          >
+            {[1, 2, 3, 5, 10, 15].map((minutes) => (
+              <option key={minutes} value={minutes}>{minutes} {minutes === 1 ? 'minute' : 'minutes'}</option>
+            ))}
+          </select>
+        </label>
+        <p className="settings-privacy-note">
+          Away tracking runs only in a running focus session. Unknown or unavailable detection
+          does not count as away; paused time is excluded.
+        </p>
       </section>
 
       <section className="card settings-group">

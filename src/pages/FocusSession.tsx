@@ -1,26 +1,21 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Camera, CameraOff, ShieldCheck } from 'lucide-react';
-import type { ActivityMonitoringState, CameraStatus } from '../services/contracts';
+import type { CameraStatus } from '../services/contracts';
 import { cameraCaptureService } from '../services/cameraCapture.service';
-import { focusLensService } from '../services/focusLensService';
-import { focusTimerService } from '../services/focusTimer.service';
 import { FocusTimer } from '../components/FocusTimer';
-import { ActivitySessionMonitor } from '../services/activitySessionMonitor.service';
-
-const INITIAL_ACTIVITY_STATE: ActivityMonitoringState = {
-  sessionId: null,
-  status: 'inactive',
-  signal: null,
-  error: null,
-};
+import { useActivityMonitoring } from '../context/useActivityMonitoring';
 
 const FocusSession: React.FC = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const frameCountRef = useRef(0);
   const [cameraStatus, setCameraStatus] = useState<CameraStatus>(cameraCaptureService.getStatus());
   const [frameCount, setFrameCount] = useState(0);
-  const [showPostureReminder, setShowPostureReminder] = useState(false);
-  const [activityState, setActivityState] = useState(INITIAL_ACTIVITY_STATE);
+  const [dismissedPostureReminderAt, setDismissedPostureReminderAt] = useState<string | null>(null);
+  const { activityState, awayState } = useActivityMonitoring();
+  const showPostureReminder = Boolean(
+    activityState.signal?.postureReminder
+    && activityState.signal.occurredAt !== dismissedPostureReminderAt,
+  );
 
   useEffect(() => {
     const unsubscribeStatus = cameraCaptureService.subscribeStatus(setCameraStatus);
@@ -30,19 +25,8 @@ const FocusSession: React.FC = () => {
     const frameCountTimer = window.setInterval(() => {
       setFrameCount(frameCountRef.current);
     }, 1_000);
-    const monitor = new ActivitySessionMonitor(focusLensService, focusTimerService);
-    const unsubscribeActivityState = monitor.subscribe((state) => {
-      setActivityState(state);
-      if (state.signal?.postureReminder) {
-        setShowPostureReminder(true);
-      }
-    });
-    const stopMonitoring = monitor.start();
-
     return () => {
       window.clearInterval(frameCountTimer);
-      stopMonitoring();
-      unsubscribeActivityState();
       unsubscribeStatus();
       unsubscribeFrames();
       cameraCaptureService.stopCapture();
@@ -51,6 +35,8 @@ const FocusSession: React.FC = () => {
 
   const isActive = cameraStatus.state === 'active';
   const isStarting = cameraStatus.state === 'starting' || cameraStatus.state === 'requesting';
+  const currentAwayEvent = awayState.events[awayState.events.length - 1];
+  const awayDurationSeconds = Math.floor(awayState.awayDurationMs / 1_000);
 
   return (
     <div className="focus-session-page">
@@ -74,7 +60,7 @@ const FocusSession: React.FC = () => {
           <button
             className="btn btn-secondary"
             type="button"
-            onClick={() => setShowPostureReminder(false)}
+            onClick={() => setDismissedPostureReminderAt(activityState.signal?.occurredAt ?? null)}
           >
             Got it
           </button>
@@ -130,6 +116,17 @@ const FocusSession: React.FC = () => {
             {activityState.signal?.occurredAt && (
               <p className="activity-updated-at">
                 Updated {new Date(activityState.signal.occurredAt).toLocaleTimeString()}
+              </p>
+            )}
+            {awayState.sessionId === activityState.sessionId && awayState.awayStartedAt && (
+              <p className="away-detection-status" role="status">
+                Away for {formatAwayDuration(awayDurationSeconds)} of {awayState.thresholdMinutes} min threshold.
+              </p>
+            )}
+            {awayState.sessionId === activityState.sessionId && currentAwayEvent && (
+              <p className="away-detection-event" role="status">
+                Away threshold reached at {new Date(currentAwayEvent.thresholdReachedAt).toLocaleTimeString()}.
+                {' '}Duration: {formatAwayDuration(Math.floor(currentAwayEvent.duration ?? 0))}.
               </p>
             )}
             {activityState.error && (
@@ -191,3 +188,9 @@ const FocusSession: React.FC = () => {
 };
 
 export default FocusSession;
+
+function formatAwayDuration(totalSeconds: number): string {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+}

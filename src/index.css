@@ -881,6 +881,32 @@ body {
   font-size: 0.85rem;
 }
 
+.away-detection-status,
+.away-detection-event {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.away-detection-event {
+  color: var(--accent-color);
+}
+
+.database-status-warning {
+  position: fixed;
+  z-index: 40;
+  top: 12px;
+  left: 50%;
+  max-width: min(720px, calc(100vw - 32px));
+  padding: 10px 16px;
+  transform: translateX(-50%);
+  border: 1px solid var(--warning-color);
+  border-radius: 10px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  font-size: 0.88rem;
+}
+
 @media (max-width: 1024px) {
   .focus-session-layout {
     grid-template-columns: 1fr;

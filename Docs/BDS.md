@@ -1346,3 +1346,36 @@ This provides the required foundation for the MVP without introducing unnecessar
 The database should remain:
 
 **Local → Minimal → Privacy-first → Queryable → Deletable → Analytics-ready**
+
+---
+
+# 44. Implemented SQLite Baseline (Day 20)
+
+The initial desktop implementation uses `@tauri-apps/plugin-sql` with SQLite.
+The `sqlite:focuslens.db` database is preloaded by Tauri and stored in the
+application's local data area. `src-tauri/migrations/0001_initial.sql` defines
+the initial schema; the ordered migration is registered in
+`src-tauri/src/lib.rs` and tracked by the SQL plugin's migration mechanism.
+Do not edit a migration that has shipped. Add a new numbered SQL migration and
+register the next version in Rust for future schema changes.
+
+The migration creates `sessions`, `activity_events`, `user_preferences`, and
+`privacy_settings`, with lifecycle/event checks, foreign-key enforcement, and
+indexes for session status/start time and activity session/time queries.
+Activity timestamps and away-period timestamps use Unix milliseconds; session
+timestamps use ISO-8601 strings. Only derived signals and away-event summaries
+are eligible for persistence. Webcam frames and recordings are never stored.
+
+`src/services/db.service.ts` owns connection initialization and typed
+repositories. The app-level activity-monitoring provider initializes storage,
+marks leftover running or paused sessions as `interrupted` on startup, and
+observes the existing timer, CV monitor, and away detector. It persists session
+lifecycle changes and derived away events without creating a second timer or
+CV service. If local storage cannot initialize, monitoring can continue in
+memory and the application displays a local-storage warning.
+
+Preferences use validated key/value JSON storage, while privacy settings accept
+only the keys declared by the current `PrivacySettings` type. Persisting a
+privacy setting does not itself enable or implement the corresponding privacy
+control. The away-threshold control still reads its existing local preference
+store; syncing individual controls to SQLite is a separate integration step.
