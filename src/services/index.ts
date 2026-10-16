@@ -4,6 +4,7 @@ export * from './nativeTransport';
 export * from './cameraCapture.service';
 export * from './focusTimer.service';
 export * from './activityEventTracker.service';
+export * from './awayTimeCalculator.service';
 export * from './focusLensService';
 export * from './cv.service';
 export * from './db.service';

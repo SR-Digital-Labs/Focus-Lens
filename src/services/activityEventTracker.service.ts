@@ -22,6 +22,11 @@ import {
   type DetectionSignalInput,
 } from '../types/index.ts';
 import { focusTimerService, type FocusTimerService, type SessionLifecycleEvent } from './focusTimer.service.ts';
+import {
+  calculateAwayTimeFromEvents,
+  type AwayTimeSummary,
+  type CalculateAwayTimeOptions,
+} from './awayTimeCalculator.service.ts';
 
 export interface ActivityEventTrackerOptions {
   /**
@@ -487,6 +492,15 @@ export class ActivityEventTrackerService {
 
   public getActiveSessionId(): string | null {
     return this._activeSessionId;
+  }
+
+  /**
+   * Day 18: Calculates away-time summary for a specific session (or active session by default).
+   */
+  public calculateAwayTime(sessionId?: string, options?: CalculateAwayTimeOptions): AwayTimeSummary {
+    const targetSessionId = sessionId ?? this._activeSessionId ?? '';
+    const events = this.getEvents(targetSessionId);
+    return calculateAwayTimeFromEvents(events, targetSessionId, options);
   }
 
   public isTracking(): boolean {
