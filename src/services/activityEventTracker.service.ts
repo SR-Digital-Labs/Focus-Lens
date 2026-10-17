@@ -27,6 +27,11 @@ import {
   type AwayTimeSummary,
   type CalculateAwayTimeOptions,
 } from './awayTimeCalculator.service.ts';
+import {
+  calculateFocusIndicatorFromEvents,
+  type FocusIndicatorResult,
+  type CalculateFocusIndicatorOptions,
+} from './focusIndicator.service.ts';
 
 export interface ActivityEventTrackerOptions {
   /**
@@ -501,6 +506,18 @@ export class ActivityEventTrackerService {
     const targetSessionId = sessionId ?? this._activeSessionId ?? '';
     const events = this.getEvents(targetSessionId);
     return calculateAwayTimeFromEvents(events, targetSessionId, options);
+  }
+
+  /**
+   * Day 19: Calculates the Focus Indicator summary for a specific session (or active session by default).
+   */
+  public calculateFocusIndicator(
+    sessionId?: string,
+    options?: CalculateFocusIndicatorOptions & { activeDurationSeconds?: number; plannedDurationSeconds?: number; now?: number }
+  ): FocusIndicatorResult {
+    const targetSessionId = sessionId ?? this._activeSessionId ?? '';
+    const events = this.getEvents(targetSessionId);
+    return calculateFocusIndicatorFromEvents(events, targetSessionId, options);
   }
 
   public isTracking(): boolean {

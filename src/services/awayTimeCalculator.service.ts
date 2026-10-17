@@ -293,7 +293,7 @@ export class AwayTimeCalculator {
     this._accumulatedCompletedAwayMs = 0;
   }
 
-  public onSessionStarted(sessionId: string, timestamp: number = Date.now()): void {
+  public onSessionStarted(sessionId: string, _timestamp: number = Date.now()): void {
     this.reset(sessionId);
     this._isSessionRunning = true;
   }
