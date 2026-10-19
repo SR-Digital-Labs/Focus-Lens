@@ -14,13 +14,16 @@
     "tauri:build": "tauri build"
   },
   "dependencies": {
+    "@react-three/drei": "^10.7.9",
+    "@react-three/fiber": "^9.8.2",
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-notification": "^2.6.0",
     "@tauri-apps/plugin-sql": "^2.6.0",
     "lucide-react": "^1.48.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "react-router-dom": "^7.18.4"
+    "react-router-dom": "^7.18.4",
+    "three": "^0.186.1"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.5",

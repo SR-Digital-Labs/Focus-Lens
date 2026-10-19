@@ -1,6 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { Moon, Sun, Sunrise, Sunset, Target } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+
+const DashboardCatMascot = lazy(() => import('../components/DashboardCatMascot'));
 
 type DaypartId = 'morning' | 'afternoon' | 'evening' | 'night';
 type DaypartAllocation = Record<DaypartId, number>;
@@ -93,7 +95,11 @@ const Dashboard: React.FC<{ username: string }> = ({ username }) => {
   }[activeDaypart];
 
   return (
-    <div>
+    <div className="dashboard-page">
+      <Suspense fallback={null}>
+        <DashboardCatMascot />
+      </Suspense>
+      <div className="dashboard-content">
       <div className="hero-section dashboard-hero">
         <div>
           <h1>{greeting} {username}</h1>
@@ -223,6 +229,7 @@ const Dashboard: React.FC<{ username: string }> = ({ username }) => {
             <div className="session-score">Focus Indicator 90%</div>
           </div>
         </div>
+      </div>
       </div>
     </div>
   );
