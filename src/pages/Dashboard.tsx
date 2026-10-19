@@ -75,6 +75,12 @@ const Dashboard: React.FC<{ username: string }> = ({ username }) => {
   }, [allocation]);
 
   const activeDaypart = getCurrentDaypart(now);
+  const greeting = {
+    morning: 'Good morning',
+    afternoon: 'Good afternoon',
+    evening: 'Good evening',
+    night: 'Good night',
+  }[activeDaypart];
   const displayName = username.charAt(0).toLocaleUpperCase() + username.slice(1);
   const totalMinutes = Object.values(allocation).reduce((total, minutes) => total + minutes, 0);
   const clockText = new Intl.DateTimeFormat(undefined, {
@@ -92,13 +98,17 @@ const Dashboard: React.FC<{ username: string }> = ({ username }) => {
       <div className="dashboard-content">
       <div className="hero-section dashboard-hero">
         <div>
-          <h1>Good morning, {displayName}</h1>
-          <DashboardCatMascot />
-          <p>Ready for a focused session?</p>
-          <button className="btn" onClick={() => navigate('/session')}>
-            <Target size={18} />
-            Start Focus Session
-          </button>
+          <div className="greeting-board-wrap">
+            <DashboardCatMascot />
+            <section className="greeting-glass-board" aria-label="Welcome">
+              <h1>{greeting}, {displayName}</h1>
+              <p>Ready for a focused session?</p>
+              <button className="btn" onClick={() => navigate('/session')}>
+                <Target size={18} />
+                Start Focus Session
+              </button>
+            </section>
+          </div>
         </div>
         <div className="live-clock" role="timer" aria-label={`Local time ${clockText}`}>
           <span className="live-clock-label">LOCAL TIME</span>

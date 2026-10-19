@@ -59,6 +59,8 @@ export default function DashboardCatMascot() {
         <span className="dashboard-cat-art" aria-hidden="true">
           <img src="/focus%20cat.gif" alt="" draggable="false" />
         </span>
+        <span className="dashboard-cat-paw dashboard-cat-paw-left" aria-hidden="true" />
+        <span className="dashboard-cat-paw dashboard-cat-paw-right" aria-hidden="true" />
       </button>
     </div>
   );
