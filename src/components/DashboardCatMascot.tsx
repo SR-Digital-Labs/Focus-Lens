@@ -9,6 +9,7 @@ const MESSAGE_DURATION_MS = 2_800;
 export default function DashboardCatMascot() {
   const [phase, setPhase] = useState<CatGreetingPhase>('looking-up');
   const [showMessage, setShowMessage] = useState(false);
+  const artRef = useRef<HTMLSpanElement>(null);
   const timersRef = useRef<number[]>([]);
 
   const clearTimers = useCallback(() => {
@@ -41,6 +42,38 @@ export default function DashboardCatMascot() {
     return clearTimers;
   }, [clearTimers, scheduleGreeting]);
 
+  useEffect(() => {
+    const resetLook = () => {
+      const art = artRef.current;
+      if (!art) return;
+      art.style.setProperty('--cat-look-x', '0px');
+      art.style.setProperty('--cat-look-y', '0px');
+    };
+
+    const trackPointer = (event: PointerEvent) => {
+      if (event.pointerType !== 'mouse') return;
+      const art = artRef.current;
+      if (!art) return;
+
+      const bounds = art.getBoundingClientRect();
+      const horizontal = Math.max(-1, Math.min(1, (event.clientX - (bounds.left + bounds.width / 2)) / (bounds.width / 2)));
+      const vertical = Math.max(-1, Math.min(1, (event.clientY - (bounds.top + bounds.height / 2)) / (bounds.height / 2)));
+      art.style.setProperty('--cat-look-x', `${horizontal * 5}px`);
+      art.style.setProperty('--cat-look-y', `${vertical * 3}px`);
+    };
+
+    const resetWhenPointerLeavesWindow = (event: PointerEvent) => {
+      if (event.relatedTarget === null) resetLook();
+    };
+
+    window.addEventListener('pointermove', trackPointer);
+    window.addEventListener('pointerout', resetWhenPointerLeavesWindow);
+    return () => {
+      window.removeEventListener('pointermove', trackPointer);
+      window.removeEventListener('pointerout', resetWhenPointerLeavesWindow);
+    };
+  }, []);
+
   return (
     <div className="dashboard-cat-mascot">
       <div className="dashboard-cat-message-slot" aria-live="polite">
@@ -56,8 +89,8 @@ export default function DashboardCatMascot() {
         aria-label="Cute animated cat. Click to hear hello again."
         onClick={playGreeting}
       >
-        <span className="dashboard-cat-art" aria-hidden="true">
-          <img src="/focus%20cat.gif" alt="" draggable="false" />
+        <span ref={artRef} className="dashboard-cat-art" aria-hidden="true">
+          <img src="/focus-cat-transparent.gif" alt="" draggable="false" />
         </span>
         <span className="dashboard-cat-paw dashboard-cat-paw-left" aria-hidden="true" />
         <span className="dashboard-cat-paw dashboard-cat-paw-right" aria-hidden="true" />
