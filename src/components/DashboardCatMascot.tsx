@@ -68,9 +68,13 @@ export default function DashboardCatMascot() {
 
     window.addEventListener('pointermove', trackPointer);
     window.addEventListener('pointerout', resetWhenPointerLeavesWindow);
+    window.addEventListener('blur', resetLook);
+    document.addEventListener('pointerleave', resetLook);
     return () => {
       window.removeEventListener('pointermove', trackPointer);
       window.removeEventListener('pointerout', resetWhenPointerLeavesWindow);
+      window.removeEventListener('blur', resetLook);
+      document.removeEventListener('pointerleave', resetLook);
     };
   }, []);
 
