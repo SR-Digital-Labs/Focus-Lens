@@ -1,8 +1,7 @@
-import React, { lazy, Suspense, useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Moon, Sun, Sunrise, Sunset, Target } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-
-const DashboardCatMascot = lazy(() => import('../components/DashboardCatMascot'));
+import DashboardCatMascot from '../components/DashboardCatMascot';
 
 type DaypartId = 'morning' | 'afternoon' | 'evening' | 'night';
 type DaypartAllocation = Record<DaypartId, number>;
@@ -76,6 +75,7 @@ const Dashboard: React.FC<{ username: string }> = ({ username }) => {
   }, [allocation]);
 
   const activeDaypart = getCurrentDaypart(now);
+  const displayName = username.charAt(0).toLocaleUpperCase() + username.slice(1);
   const totalMinutes = Object.values(allocation).reduce((total, minutes) => total + minutes, 0);
   const clockText = new Intl.DateTimeFormat(undefined, {
     hour: '2-digit',
@@ -87,22 +87,13 @@ const Dashboard: React.FC<{ username: string }> = ({ username }) => {
     month: 'long',
     day: 'numeric',
   }).format(now);
-  const greeting = {
-    morning: 'Good morning',
-    afternoon: 'Good afternoon',
-    evening: 'Good evening',
-    night: 'Good evening',
-  }[activeDaypart];
-
   return (
     <div className="dashboard-page">
-      <Suspense fallback={null}>
-        <DashboardCatMascot />
-      </Suspense>
       <div className="dashboard-content">
       <div className="hero-section dashboard-hero">
         <div>
-          <h1>{greeting} {username}</h1>
+          <h1>Good morning, {displayName}</h1>
+          <DashboardCatMascot />
           <p>Ready for a focused session?</p>
           <button className="btn" onClick={() => navigate('/session')}>
             <Target size={18} />

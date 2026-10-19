@@ -1630,51 +1630,88 @@ body {
   z-index: 1;
 }
 
-.dashboard-cat-layer {
-  position: fixed;
-  z-index: 2;
-  inset: 0;
-  overflow: hidden;
-  pointer-events: none;
+.dashboard-cat-mascot {
+  display: flex;
+  width: min(240px, 100%);
+  min-height: 174px;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-end;
+  margin: -5px 0 0 -9px;
 }
 
-.dashboard-cat-layer > div,
-.dashboard-cat-layer canvas {
-  width: 100% !important;
-  height: 100% !important;
+.dashboard-cat-message-slot {
+  display: flex;
+  min-height: 34px;
+  align-items: flex-end;
+  padding-left: 112px;
 }
 
-.dashboard-cat-bubble {
+.dashboard-cat-message {
   position: relative;
-  min-width: max-content;
-  padding: 9px 13px;
-  border: 1px solid rgba(255, 255, 255, 0.58);
-  border-radius: 16px 16px 16px 5px;
+  display: inline-block;
+  padding: 5px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.66);
+  border-radius: 13px 13px 13px 4px;
   background: linear-gradient(135deg, #fff8f0, #ffe4ed);
-  box-shadow: 0 8px 26px rgba(54, 35, 64, 0.2);
+  box-shadow: 0 6px 18px rgba(54, 35, 64, 0.18);
   color: #633d59;
-  font-size: 0.83rem;
+  font-size: 0.82rem;
   font-weight: 700;
-  pointer-events: none;
   animation: cat-bubble-pop 220ms cubic-bezier(0.2, 0.8, 0.2, 1.2) both;
 }
 
-.dashboard-cat-hitbox {
+.dashboard-cat-face {
   display: block;
-  width: 116px;
-  height: 104px;
+  width: 220px;
+  height: 150px;
   border: 0;
-  border-radius: 50%;
-  outline: none;
+  border-radius: 0;
   background: transparent;
   cursor: pointer;
-  pointer-events: auto;
+  perspective: 500px;
   -webkit-tap-highlight-color: transparent;
 }
 
-.dashboard-cat-hitbox:focus-visible {
+.dashboard-cat-face:focus-visible {
+  border-radius: 18px;
   outline: 2px solid #a89dff;
-  outline-offset: 3px;
+  outline-offset: -4px;
+}
+
+.dashboard-cat-art {
+  position: relative;
+  display: block;
+  width: 220px;
+  height: 150px;
+  overflow: hidden;
+  transform-origin: 50% 80%;
+  transition: transform 650ms cubic-bezier(0.2, 0.7, 0.2, 1);
+  mask-image: radial-gradient(ellipse 72% 74% at 50% 52%, #000 76%, transparent 100%);
+}
+
+.dashboard-cat-art img {
+  position: absolute;
+  top: -134px;
+  left: -250px;
+  display: block;
+  width: 720px;
+  height: 540px;
+  max-width: none;
+  mix-blend-mode: screen;
+  user-select: none;
+}
+
+.dashboard-cat-face.looking-up .dashboard-cat-art {
+  transform: translateY(-8px) rotateX(18deg) rotateZ(-3deg) scale(1.06);
+}
+
+.dashboard-cat-face.turning-to-user .dashboard-cat-art {
+  transform: translateY(0) rotateX(0) rotateY(0) rotateZ(2deg) scale(1.03);
+}
+
+.dashboard-cat-face.idle .dashboard-cat-art {
+  animation: cat-face-breathe 4s ease-in-out infinite;
 }
 
 @keyframes cat-bubble-pop {
@@ -1685,6 +1722,45 @@ body {
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes cat-face-breathe {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-2px) scale(1.015); }
+}
+
+@media (max-width: 760px) {
+  .dashboard-cat-mascot {
+    min-height: 159px;
+  }
+
+  .dashboard-cat-face,
+  .dashboard-cat-art {
+    width: 200px;
+    height: 135px;
+  }
+
+  .dashboard-cat-art img {
+    top: -122px;
+    left: -227px;
+    width: 650px;
+    height: 488px;
+  }
+
+  .dashboard-cat-message-slot {
+    padding-left: 100px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dashboard-cat-art,
+  .dashboard-cat-face.looking-up .dashboard-cat-art,
+  .dashboard-cat-face.turning-to-user .dashboard-cat-art,
+  .dashboard-cat-face.idle .dashboard-cat-art {
+    animation: none;
+    transition: none;
+    transform: none;
   }
 }
 
