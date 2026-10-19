@@ -55,7 +55,7 @@ function formatDuration(totalMinutes: number): string {
   return `${minutes}m`;
 }
 
-const Dashboard: React.FC = () => {
+const Dashboard: React.FC<{ username: string }> = ({ username }) => {
   const navigate = useNavigate();
   const [now, setNow] = useState(() => new Date());
   const [allocation, setAllocation] = useState<DaypartAllocation>(readAllocation);
@@ -96,7 +96,7 @@ const Dashboard: React.FC = () => {
     <div>
       <div className="hero-section dashboard-hero">
         <div>
-          <h1>{greeting}</h1>
+          <h1>{greeting} {username}</h1>
           <p>Ready for a focused session?</p>
           <button className="btn" onClick={() => navigate('/session')}>
             <Target size={18} />

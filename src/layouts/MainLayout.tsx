@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Outlet, NavLink, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Target, History, BarChart3, Settings } from 'lucide-react';
+import { LayoutDashboard, Target, History, BarChart3, Settings, LogOut } from 'lucide-react';
 import type { CameraStatus } from '../services/contracts';
 import { cameraCaptureService } from '../services/cameraCapture.service';
 import { focusTimerService } from '../services/focusTimer.service';
@@ -8,7 +8,12 @@ import type { FocusTimerState } from '../types';
 import WellnessReminderHost from '../components/WellnessReminderHost';
 import { ActivityMonitoringProvider } from '../context/ActivityMonitoringContext';
 
-const MainLayout: React.FC = () => {
+interface MainLayoutProps {
+  username: string;
+  onLogout: () => void;
+}
+
+const MainLayout: React.FC<MainLayoutProps> = ({ username, onLogout }) => {
   const location = useLocation();
   const [cameraStatus, setCameraStatus] = useState<CameraStatus>(cameraCaptureService.getStatus());
   const [timerState, setTimerState] = useState<FocusTimerState>(() => focusTimerService.getState());
@@ -97,6 +102,11 @@ const MainLayout: React.FC = () => {
                 </span>
               </NavLink>
             )}
+            <span className="topbar-username">{username}</span>
+            <button className="topbar-logout" type="button" onClick={onLogout}>
+              <LogOut size={16} />
+              Sign out
+            </button>
             <div
               className={`camera-status${cameraStatus.state === 'active' ? ' active' : ''}`}
               title={cameraStatus.message}

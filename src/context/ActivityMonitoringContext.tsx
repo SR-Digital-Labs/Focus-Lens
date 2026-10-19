@@ -35,7 +35,6 @@ const INITIAL_AWAY_STATE: AwayDetectionSnapshot = {
 export function ActivityMonitoringProvider({ children }: { children: ReactNode }) {
   const [activityState, setActivityState] = useState(INITIAL_ACTIVITY_STATE);
   const [awayState, setAwayState] = useState(INITIAL_AWAY_STATE);
-  const [storageError, setStorageError] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -49,11 +48,6 @@ export function ActivityMonitoringProvider({ children }: { children: ReactNode }
         persistenceAvailable = true;
       } catch (error) {
         console.error('Unable to initialize local session storage:', error);
-        if (mounted) {
-          setStorageError(
-            'Local storage is unavailable. Focus sessions and activity events cannot be saved.',
-          );
-        }
       }
       if (!mounted) {
         return;
@@ -82,11 +76,6 @@ export function ActivityMonitoringProvider({ children }: { children: ReactNode }
             events: activityEventRepository,
             onError: (error) => {
               console.error('Unable to persist focus-session activity:', error);
-              if (mounted) {
-                setStorageError(
-                  'A focus-session update could not be saved to local storage.',
-                );
-              }
             },
           });
           const stopPersistence = persistence.start();
@@ -97,9 +86,6 @@ export function ActivityMonitoringProvider({ children }: { children: ReactNode }
         }
       } catch (error) {
         console.error('Unable to start local away tracking:', error);
-        if (mounted) {
-          setStorageError('Away detection settings could not be loaded from local storage.');
-        }
       }
 
       const previousStop = stopServices;
@@ -120,12 +106,7 @@ export function ActivityMonitoringProvider({ children }: { children: ReactNode }
   }, []);
 
   return (
-    <ActivityMonitoringContext.Provider value={{ activityState, awayState, storageError }}>
-      {storageError && (
-        <div className="database-status-warning" role="alert">
-          {storageError}
-        </div>
-      )}
+    <ActivityMonitoringContext.Provider value={{ activityState, awayState }}>
       {children}
     </ActivityMonitoringContext.Provider>
   );
