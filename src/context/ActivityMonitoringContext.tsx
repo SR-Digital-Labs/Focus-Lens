@@ -120,7 +120,7 @@ export function ActivityMonitoringProvider({ children }: { children: ReactNode }
   }, []);
 
   return (
-    <ActivityMonitoringContext.Provider value={{ activityState, awayState }}>
+    <ActivityMonitoringContext.Provider value={{ activityState, awayState, storageError }}>
       {storageError && (
         <div className="database-status-warning" role="alert">
           {storageError}

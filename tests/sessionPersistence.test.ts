@@ -217,6 +217,187 @@ describe('SessionPersistenceService', () => {
     service.stop();
   });
 
+  it('handles early termination (cancellation) preserving status, actual elapsed duration, and ends session', async () => {
+    let now = Date.parse('2026-10-15T00:00:00.000Z');
+    const activity = new ActivitySource();
+    const timer = new TimerSource(timerState('running', 0));
+    const away = new AwaySource();
+    const sessions = new Map<string, Session>();
+    const service = new SessionPersistenceService({
+      activity,
+      timer,
+      away,
+      sessions: {
+        async create(session) {
+          sessions.set(session.id, { ...session });
+        },
+        async update(id, changes) {
+          const session = sessions.get(id);
+          assert.ok(session);
+          sessions.set(id, { ...session, ...changes });
+        },
+      },
+      events: { async record() {} },
+      now: () => now,
+    });
+    service.start();
+
+    activity.publish({
+      sessionId: 'session-early-end',
+      status: 'waiting',
+      signal: null,
+      error: null,
+    });
+    await service.flush();
+    assert.equal(sessions.get('session-early-end')?.status, 'running');
+
+    // Simulate 3 minutes elapsed
+    now += 180_000;
+    timer.publish(timerState('running', 180));
+    await service.flush();
+
+    // User clicks End Session early (timer returns to idle)
+    now += 5_000;
+    timer.publish(timerState('idle', 0));
+    await service.flush();
+
+    const endedSession = sessions.get('session-early-end');
+    assert.ok(endedSession);
+    assert.equal(endedSession.status, 'cancelled');
+    assert.equal(endedSession.endedAt, new Date(now).toISOString());
+    assert.equal(endedSession.elapsedSeconds, 180);
+    assert.equal(endedSession.pausedAt, null);
+    service.stop();
+  });
+
+  it('reports database write errors via onError callback without crashing', async () => {
+    const activity = new ActivitySource();
+    const timer = new TimerSource(timerState('running', 0));
+    const away = new AwaySource();
+    const errors: Error[] = [];
+    const service = new SessionPersistenceService({
+      activity,
+      timer,
+      away,
+      sessions: {
+        async create() {
+          throw new Error('SQLite disk I/O error on create');
+        },
+        async update() {},
+      },
+      events: { async record() {} },
+      onError: (err) => {
+        errors.push(err);
+      },
+    });
+    service.start();
+
+    activity.publish({
+      sessionId: 'session-error-test',
+      status: 'waiting',
+      signal: null,
+      error: null,
+    });
+    await service.flush();
+
+    assert.equal(errors.length, 1);
+    assert.match(errors[0].message, /SQLite disk I\/O error on create/);
+    service.stop();
+  });
+
+  it('prevents duplicate session creation on repeated callbacks', async () => {
+    let createCount = 0;
+    const activity = new ActivitySource();
+    const timer = new TimerSource(timerState('running', 0));
+    const away = new AwaySource();
+    const service = new SessionPersistenceService({
+      activity,
+      timer,
+      away,
+      sessions: {
+        async create() {
+          createCount += 1;
+        },
+        async update() {},
+      },
+      events: { async record() {} },
+    });
+    service.start();
+
+    // Multiple rapid activity updates with the same session ID
+    activity.publish({ sessionId: 'session-dup', status: 'waiting', signal: null, error: null });
+    activity.publish({ sessionId: 'session-dup', status: 'active', signal: null, error: null });
+    activity.publish({ sessionId: 'session-dup', status: 'active', signal: null, error: null });
+    await service.flush();
+
+    assert.equal(createCount, 1);
+    service.stop();
+  });
+
+  it('tracks paused duration accurately across pause and resume', async () => {
+    let now = Date.parse('2026-10-15T00:00:00.000Z');
+    const activity = new ActivitySource();
+    const timer = new TimerSource(timerState('running', 0));
+    const away = new AwaySource();
+    const sessions = new Map<string, Session>();
+    const service = new SessionPersistenceService({
+      activity,
+      timer,
+      away,
+      sessions: {
+        async create(session) {
+          sessions.set(session.id, { ...session });
+        },
+        async update(id, changes) {
+          const session = sessions.get(id);
+          assert.ok(session);
+          sessions.set(id, { ...session, ...changes });
+        },
+      },
+      events: { async record() {} },
+      now: () => now,
+    });
+    service.start();
+
+    activity.publish({
+      sessionId: 'session-pause-track',
+      status: 'waiting',
+      signal: null,
+      error: null,
+    });
+    await service.flush();
+
+    // Run for 60s
+    now += 60_000;
+    timer.publish(timerState('paused', 60));
+    await service.flush();
+    assert.equal(sessions.get('session-pause-track')?.status, 'paused');
+    assert.equal(sessions.get('session-pause-track')?.pausedAt, new Date(now).toISOString());
+
+    // Paused for 45 seconds
+    now += 45_000;
+    timer.publish(timerState('running', 60));
+    await service.flush();
+
+    const resumed = sessions.get('session-pause-track');
+    assert.ok(resumed);
+    assert.equal(resumed.status, 'running');
+    assert.equal(resumed.pausedAt, null);
+    assert.equal(resumed.pausedDurationSeconds, 45);
+
+    // Complete session at 1500s
+    now += 1_440_000;
+    timer.publish(timerState('completed', 1500));
+    await service.flush();
+
+    const completed = sessions.get('session-pause-track');
+    assert.ok(completed);
+    assert.equal(completed.status, 'completed');
+    assert.equal(completed.pausedDurationSeconds, 45);
+    assert.equal(completed.elapsedSeconds, 1500);
+    service.stop();
+  });
+
   it('cleans up timer, activity, and away subscriptions', () => {
     const activity = new ActivitySource();
     const timer = new TimerSource(timerState('idle'));

@@ -5,6 +5,7 @@ import type { AwayDetectionSnapshot } from '../services/awayDetection.service';
 export interface ActivityMonitoringContextValue {
   activityState: ActivityMonitoringState;
   awayState: AwayDetectionSnapshot;
+  storageError: string | null;
 }
 
 export const ActivityMonitoringContext =
