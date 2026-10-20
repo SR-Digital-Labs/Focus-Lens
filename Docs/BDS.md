@@ -1389,8 +1389,12 @@ lifecycle changes and derived away events without creating a second timer or
 CV service. If local storage cannot initialize, monitoring can continue in
 memory and the application displays a local-storage warning.
 
-Preferences use validated key/value JSON storage, while privacy settings accept
-only the keys declared by the current `PrivacySettings` type. Persisting a
-privacy setting does not itself enable or implement the corresponding privacy
-control. The away-threshold control still reads its existing local preference
-store; syncing individual controls to SQLite is a separate integration step.
+Preferences use validated key/value JSON storage. Reads can provide a caller-
+selected default for a missing key; this fallback is returned without writing
+it to the database. Preference keys that could contain passwords, secrets,
+tokens, credentials, or API keys are rejected so credentials are not stored as
+plaintext. Privacy settings accept only the keys declared by the current
+`PrivacySettings` type. Persisting a privacy setting does not itself enable or
+implement the corresponding privacy control. The away-threshold control still
+reads its existing local preference store; syncing individual controls to
+SQLite is a separate integration step.

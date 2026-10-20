@@ -400,8 +400,10 @@ describe('Local SQLite database and repositories', () => {
   it('persists user preferences and validated privacy settings locally', async () => {
     const { testDatabase, database, preferences, privacy } = await setup();
     try {
+      assert.equal(await preferences.getOrDefault('appearance.theme', 'system'), 'system');
       await preferences.set('away.thresholdMinutes', 5);
       assert.equal(await preferences.get<number>('away.thresholdMinutes'), 5);
+      assert.equal(await preferences.getOrDefault('away.thresholdMinutes', 10), 5);
       await preferences.set('away.thresholdMinutes', 3);
       assert.equal(await preferences.get<number>('away.thresholdMinutes'), 3);
       await assert.rejects(preferences.set('apiKey', 'not-allowed'), /must not be stored as plaintext/);

@@ -390,6 +390,17 @@ export class PreferencesRepository {
     return rows[0] ? parseStoredValue<T>(rows[0].preference_value, 'user preference') : null;
   }
 
+  async getOrDefault<T>(key: string, defaultValue: T): Promise<T> {
+    validatePreferenceKey(key);
+    const rows = await this.database.select<Array<{ preference_value: string }>>(
+      'SELECT preference_value FROM user_preferences WHERE preference_key = $1',
+      [key],
+    );
+    return rows[0]
+      ? parseStoredValue<T>(rows[0].preference_value, 'user preference')
+      : defaultValue;
+  }
+
   async set(key: string, value: unknown): Promise<void> {
     validatePreferenceKey(key);
     const encoded = encodeStoredValue(value, 'user preference');
