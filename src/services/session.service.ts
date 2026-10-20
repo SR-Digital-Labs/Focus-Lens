@@ -1,4 +1,4 @@
-import type { Session } from '../types';
+import type { PersistedSessionStatus, Session } from '../types';
 import {
   SessionRepository,
   type SessionQuery,
@@ -43,6 +43,23 @@ export class SessionService {
 
   delete(id: string): Promise<boolean> {
     return this.repository.delete(id);
+  }
+
+  getAll(options: {
+    status?: PersistedSessionStatus;
+    startedAfter?: string;
+    startedBefore?: string;
+    order?: 'asc' | 'desc';
+  } = {}): Promise<Session[]> {
+    return this.repository.getAll(options);
+  }
+
+  getRecent(limit = 10): Promise<Session[]> {
+    return this.repository.list({ limit, order: 'desc' });
+  }
+
+  count(status?: PersistedSessionStatus): Promise<number> {
+    return this.repository.count(status);
   }
 }
 

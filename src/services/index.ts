@@ -10,3 +10,5 @@ export * from './focusLensService';
 export * from './cv.service';
 export * from './db.service';
 export * from './tauri.service';
+export * from './session.service';
+export * from './sessionRetrieval.service';
