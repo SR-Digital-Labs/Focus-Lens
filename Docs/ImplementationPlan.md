@@ -829,7 +829,10 @@ Tauri is part of the proposed desktop architecture.
 
 ### Ragavi
 
-* Configure Tauri commands/native integration required by the application.
+* Register and validate the camera-status IPC command with structured native
+  errors, and configure only the required Tauri SQL, notification, and event
+  permissions.
+* Expose the camera-status operation through the typed frontend service.
 
 ---
 

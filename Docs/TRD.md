@@ -652,7 +652,14 @@ React UI → FocusLens Service → Tauri IPC → Native/CV Adapter → Python CV
                     └── typed events┘
 ```
 
-Tauri commands carry request/response operations. Tauri events carry activity signals, session lifecycle events, and future CV responses. The frontend service owns transport details; UI components consume domain types. The Python/OpenCV/MediaPipe CV pipeline exists as a separate local component; end-to-end Tauri adapter wiring remains future integration work and must not expose frames to React.
+Tauri commands carry request/response operations. The camera-status command is
+registered with a versioned request/response contract and explicit unavailable
+status until native camera integration is implemented. Tauri events carry
+activity signals, session lifecycle events, and future CV responses. The
+frontend service owns transport details; UI components consume domain types.
+The Python/OpenCV/MediaPipe CV pipeline exists as a separate local component;
+end-to-end CV event wiring remains future integration work and must not expose
+frames to React.
 
 ## 22.1 Request and Response Contract
 

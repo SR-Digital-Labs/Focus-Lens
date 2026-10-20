@@ -295,8 +295,10 @@ job titles. Both should help with integration, tests, and review.
 ### Day 23 — Frontend/Desktop Integration
 - **Shavisha:** Connect UI actions and desktop-specific states through the
   approved Tauri APIs; keep browser/dev behavior understandable if supported.
-- **Ragavi:** Implement/configure the required Tauri commands, permissions, and
-  native-side error responses; expose only the capabilities the app needs.
+- **Ragavi:** Register and validate the camera-status IPC command with
+  structured native errors; configure only the required Tauri SQL,
+  notification, and event permissions and expose the operation through the
+  typed frontend service.
 - **Together:** Test each command from its UI caller and verify permission or
   native failures produce a visible error.
 - **Outcome/check:** The React app can use required native features through a
