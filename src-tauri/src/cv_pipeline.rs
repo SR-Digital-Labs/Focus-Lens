@@ -117,13 +117,34 @@ impl CvPipelineBridge {
     /// Locates `cv/main.py` relative to the Tauri app resource directory,
     /// launches `python cv/main.py --headless`, and spawns a background
     /// reader thread that forwards stdout JSON lines as Tauri events.
-    pub fn start(&self, app: AppHandle, cv_dir: String) -> Result<(), String> {
+    pub fn start(&self, app: AppHandle, cv_dir: std::path::PathBuf) -> Result<(), String> {
+        if self.is_running()? {
+            return Ok(());
+        }
+        self.stop()?;
+
         let mut running = self.running.lock().map_err(|e| e.to_string())?;
         if *running {
             return Ok(());
         }
+        let mut state_guard = self.state.lock().map_err(|e| e.to_string())?;
 
-        let main_py = format!("{}/main.py", cv_dir);
+        let main_py = cv_dir.join("main.py");
+        if !main_py.is_file() {
+            return Err(format!(
+                "The CV entry point is missing: {}",
+                main_py.display()
+            ));
+        }
+        for model in ["face_landmarker.task", "pose_landmarker_lite.task"] {
+            let model_path = cv_dir.join("models").join(model);
+            if !model_path.is_file() {
+                return Err(format!(
+                    "The required CV model is missing: {}. Download both models with the scripts in cv/models/ before building or running FocusLens.",
+                    model_path.display()
+                ));
+            }
+        }
 
         // Find `python` / `python3` on PATH
         let python = if cfg!(target_os = "windows") {
@@ -147,10 +168,14 @@ impl CvPipelineBridge {
                 )
             })?;
 
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or("CV subprocess did not provide a stdout handle")?;
+        let stdout = match child.stdout.take() {
+            Some(stdout) => stdout,
+            None => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("CV subprocess did not provide a stdout handle.".to_string());
+            }
+        };
 
         let reader_running = Arc::clone(&self.running);
         let app_clone = app.clone();
@@ -259,11 +284,14 @@ impl CvPipelineBridge {
                 }
             }
 
+            match reader_running.lock() {
+                Ok(mut running) => *running = false,
+                Err(error) => eprintln!("[FocusLens CV] Unable to update subprocess status: {error}"),
+            }
             eprintln!("[FocusLens CV] Reader thread exiting.");
         });
 
         *running = true;
-        let mut state_guard = self.state.lock().map_err(|e| e.to_string())?;
         *state_guard = Some(PipelineState {
             child,
             reader_thread: Some(reader),
@@ -275,29 +303,45 @@ impl CvPipelineBridge {
     /// Stop the Python CV pipeline subprocess and clean up resources.
     pub fn stop(&self) -> Result<(), String> {
         let mut running = self.running.lock().map_err(|e| e.to_string())?;
-        if !*running {
-            return Ok(());
-        }
         *running = false;
         drop(running); // release lock before joining
 
         let mut state_guard = self.state.lock().map_err(|e| e.to_string())?;
         if let Some(mut state) = state_guard.take() {
-            // Kill the subprocess; ignore errors if it already exited
-            let _ = state.child.kill();
-            let _ = state.child.wait();
+            if state.child.try_wait().map_err(|error| {
+                format!("Unable to check the CV subprocess status: {error}")
+            })?.is_none() {
+                state.child.kill().map_err(|error| {
+                    format!("Unable to stop the CV subprocess: {error}")
+                })?;
+                state.child.wait().map_err(|error| {
+                    format!("Unable to wait for the CV subprocess to stop: {error}")
+                })?;
+            }
 
-            // Join the reader thread (it will exit when stdout closes)
             if let Some(handle) = state.reader_thread.take() {
-                let _ = handle.join();
+                handle
+                    .join()
+                    .map_err(|_| "The CV subprocess reader thread panicked.".to_string())?;
             }
         }
 
         Ok(())
     }
 
-    pub fn is_running(&self) -> bool {
-        self.running.lock().map(|g| *g).unwrap_or(false)
+    pub fn is_running(&self) -> Result<bool, String> {
+        self.running
+            .lock()
+            .map(|running| *running)
+            .map_err(|error| error.to_string())
+    }
+}
+
+impl Drop for CvPipelineBridge {
+    fn drop(&mut self) {
+        if let Err(error) = self.stop() {
+            eprintln!("[FocusLens CV] Failed to clean up pipeline resources: {error}");
+        }
     }
 }
 

@@ -110,7 +110,9 @@ export function ActivityMonitoringProvider({ children }: { children: ReactNode }
       stopServices = () => {
         unsubscribeTimerCv();
         if (cvService.isRunning()) {
-          void cvService.stop().catch(() => {});
+          void cvService.stop().catch((error: unknown) => {
+            console.warn('[ActivityMonitoring] CV pipeline failed to stop during cleanup:', error);
+          });
         }
         cvService.teardown();
         stopAway();

@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use tauri::State;
+use tauri::{Manager, State};
 
 mod config;
 mod cv_pipeline;
@@ -116,10 +116,29 @@ fn get_camera_status(
         };
     }
 
-    let is_running = bridge
-        .lock()
-        .map(|b| b.is_running())
-        .unwrap_or(false);
+    let is_running = match bridge.lock() {
+        Ok(bridge) => match bridge.is_running() {
+            Ok(is_running) => is_running,
+            Err(error) => {
+                return ServiceResponse {
+                    protocol_version: SERVICE_PROTOCOL_VERSION,
+                    request_id: request.request_id,
+                    ok: false,
+                    data: None,
+                    error: Some(ServiceError::dynamic_message("INTERNAL", error)),
+                };
+            }
+        },
+        Err(error) => {
+            return ServiceResponse {
+                protocol_version: SERVICE_PROTOCOL_VERSION,
+                request_id: request.request_id,
+                ok: false,
+                data: None,
+                error: Some(ServiceError::dynamic_message("INTERNAL", error.to_string())),
+            };
+        }
+    };
 
     let status = if is_running {
         CameraStatus {
@@ -171,7 +190,6 @@ fn start_cv_pipeline(
         };
     }
 
-    let cv_dir = resolve_cv_dir(&app);
     let guard = match bridge.lock() {
         Ok(g) => g,
         Err(e) => {
@@ -185,7 +203,19 @@ fn start_cv_pipeline(
         }
     };
 
-    if guard.is_running() {
+    let already_running = match guard.is_running() {
+        Ok(is_running) => is_running,
+        Err(error) => {
+            return ServiceResponse {
+                protocol_version: SERVICE_PROTOCOL_VERSION,
+                request_id: request.request_id,
+                ok: false,
+                data: None,
+                error: Some(ServiceError::dynamic_message("INTERNAL", error)),
+            };
+        }
+    };
+    if already_running {
         return ServiceResponse {
             protocol_version: SERVICE_PROTOCOL_VERSION,
             request_id: request.request_id,
@@ -197,6 +227,19 @@ fn start_cv_pipeline(
             error: None,
         };
     }
+
+    let cv_dir = match resolve_cv_dir(&app) {
+        Ok(path) => path,
+        Err(message) => {
+            return ServiceResponse {
+                protocol_version: SERVICE_PROTOCOL_VERSION,
+                request_id: request.request_id,
+                ok: false,
+                data: None,
+                error: Some(ServiceError::dynamic_message("DEVICE_UNAVAILABLE", message)),
+            };
+        }
+    };
 
     match guard.start(app.clone(), cv_dir) {
         Ok(()) => ServiceResponse {
@@ -272,44 +315,59 @@ fn stop_cv_pipeline(
 // Helper: locate the cv/ directory
 // ---------------------------------------------------------------------------
 
-fn resolve_cv_dir(app: &tauri::AppHandle) -> String {
-    // Try the resource directory first (production bundles)
+fn resolve_cv_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     if let Ok(resource_dir) = app.path().resource_dir() {
         let candidate = resource_dir.join("cv");
-        if candidate.is_dir() {
-            return candidate.to_string_lossy().to_string();
-        }
-        // Also try parent of resource dir
-        if let Some(parent) = resource_dir.parent() {
-            let candidate = parent.join("cv");
-            if candidate.is_dir() {
-                return candidate.to_string_lossy().to_string();
-            }
+        if is_cv_directory(&candidate) {
+            return Ok(candidate);
         }
     }
 
-    // Development fallback: cv/ sits next to src-tauri/
-    // Executable is typically at target/debug/focuslens or similar.
-    // Walk upward from the current exe to find the workspace root.
     if let Ok(exe) = std::env::current_exe() {
-        let mut dir: &std::path::Path = exe.as_path();
-        for _ in 0..6 {
-            if let Some(parent) = dir.parent() {
-                let candidate: PathBuf = parent.join("cv");
-                if candidate.is_dir() {
-                    return candidate.to_string_lossy().to_string();
-                }
-                dir = parent;
-            } else {
-                break;
-            }
+        if let Some(candidate) = find_cv_directory(exe.as_path()) {
+            return Ok(candidate);
         }
     }
 
-    // Last resort: use the current working directory
-    std::env::current_dir()
-        .map(|d| d.join("cv").to_string_lossy().to_string())
-        .unwrap_or_else(|_| "cv".to_string())
+    if let Ok(current_dir) = std::env::current_dir() {
+        if let Some(candidate) = find_cv_directory(&current_dir) {
+            return Ok(candidate);
+        }
+    }
+
+    Err(
+        "The local CV resources could not be found. Reinstall FocusLens or restore its bundled cv/ directory."
+            .to_string(),
+    )
+}
+
+fn find_cv_directory(start: &Path) -> Option<PathBuf> {
+    start.ancestors().find_map(|directory| {
+        let candidate = directory.join("cv");
+        if is_cv_directory(&candidate) {
+            Some(candidate)
+        } else {
+            None
+        }
+    })
+}
+
+fn is_cv_directory(path: &Path) -> bool {
+    path.join("main.py").is_file()
+}
+
+fn stop_pipeline_on_exit(app_handle: &tauri::AppHandle) {
+    let Some(bridge) = app_handle.try_state::<Mutex<CvPipelineBridge>>() else {
+        return;
+    };
+    match bridge.lock() {
+        Ok(bridge) => {
+            if let Err(error) = bridge.stop() {
+                eprintln!("[FocusLens] Failed to stop CV pipeline during shutdown: {error}");
+            }
+        }
+        Err(error) => eprintln!("[FocusLens] CV pipeline state was poisoned during shutdown: {error}"),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -318,7 +376,7 @@ fn resolve_cv_dir(app: &tauri::AppHandle) -> String {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .plugin(
             tauri_plugin_sql::Builder::default()
@@ -339,8 +397,14 @@ pub fn run() {
             start_cv_pipeline,
             stop_cv_pipeline,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running FocusLens")
+        .build(tauri::generate_context!())
+        .expect("error while building FocusLens");
+
+    app.run(|app_handle, event| {
+        if let tauri::RunEvent::Exit = event {
+            stop_pipeline_on_exit(&app_handle);
+        }
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -349,10 +413,12 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{EmptyPayload, ServiceRequest};
+    use super::{find_cv_directory, is_cv_directory, EmptyPayload, ServiceRequest};
     use crate::config::SERVICE_PROTOCOL_VERSION;
     use crate::cv_pipeline::CvPipelineBridge;
     use std::sync::Mutex;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn make_bridge() -> Mutex<CvPipelineBridge> {
         Mutex::new(CvPipelineBridge::new())
@@ -362,7 +428,7 @@ mod tests {
     fn cv_pipeline_bridge_is_not_running_initially() {
         let bridge = make_bridge();
         let guard = bridge.lock().unwrap();
-        assert!(!guard.is_running());
+        assert!(!guard.is_running().unwrap());
     }
 
     #[test]
@@ -370,7 +436,27 @@ mod tests {
         let bridge = make_bridge();
         let guard = bridge.lock().unwrap();
         assert!(guard.stop().is_ok());
-        assert!(!guard.is_running());
+        assert!(!guard.is_running().unwrap());
+    }
+
+    #[test]
+    fn cv_resource_lookup_requires_the_entry_point_and_finds_parent_resource_directory() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("focuslens-cv-resource-{unique}"));
+        let cv_dir = root.join("cv");
+        fs::create_dir_all(&cv_dir).unwrap();
+
+        assert!(!is_cv_directory(&cv_dir));
+        assert!(find_cv_directory(&root).is_none());
+
+        fs::write(cv_dir.join("main.py"), "pass").unwrap();
+        assert!(is_cv_directory(&cv_dir));
+        assert_eq!(find_cv_directory(&root), Some(cv_dir.clone()));
+
+        fs::remove_dir_all(root).unwrap();
     }
 
     // Note: get_camera_status requires a Tauri AppHandle via State<>, which

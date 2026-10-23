@@ -27,7 +27,17 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all"
+    "targets": "all",
+    "resources": {
+      "../cv/main.py": "cv/main.py",
+      "../cv/requirements.txt": "cv/requirements.txt",
+      "../cv/app/*.py": "cv/app/",
+      "../cv/config/*.py": "cv/config/",
+      "../cv/models/*.py": "cv/models/",
+      "../cv/models/*.task": "cv/models/",
+      "../cv/services/*.py": "cv/services/",
+      "../cv/utils/*.py": "cv/utils/"
+    }
   },
   "plugins": {
     "sql": {
