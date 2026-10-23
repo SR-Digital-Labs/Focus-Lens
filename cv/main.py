@@ -47,6 +47,7 @@ Future CV stages are added to:
 
 import sys
 import os
+import argparse
 
 # ---------------------------------------------------------------------------
 # Make the cv/ directory the Python path root so sibling packages
@@ -58,8 +59,34 @@ from app.pipeline import CVPipeline
 
 
 def main() -> None:
-    """Start the FocusLens CV pipeline."""
-    pipeline = CVPipeline()
+    """
+    Start the FocusLens CV pipeline.
+
+    CLI flags
+    ---------
+    --headless
+        Run without an OpenCV preview window and emit detection signals as
+        newline-delimited JSON to stdout.  Used by the Tauri desktop app to
+        receive activity signals from the Python CV process.
+    """
+    parser = argparse.ArgumentParser(
+        description="FocusLens CV pipeline",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--headless",
+        action="store_true",
+        default=False,
+        help=(
+            "Run without the OpenCV preview window. "
+            "Emits ActivitySignal JSON lines to stdout for Tauri integration."
+        ),
+    )
+    args = parser.parse_args()
+
+    # headless=True forces headless regardless of the SHOW_DEV_PREVIEW setting.
+    # headless=False means the config file decides (default dev behaviour).
+    pipeline = CVPipeline(headless=args.headless if args.headless else None)
     pipeline.run()
 
 

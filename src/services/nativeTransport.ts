@@ -1,14 +1,14 @@
 import { isTauri } from '@tauri-apps/api/core';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { appConfig } from '../config/appConfig';
+import { appConfig } from '../config/appConfig.ts';
 import type {
   ServiceEvent,
   ServiceRequest,
   ServiceResponse,
   Unsubscribe,
-} from './contracts';
-import { FocusLensServiceError, toServiceError } from './serviceErrors';
+} from './contracts.ts';
+import { FocusLensServiceError, toServiceError } from './serviceErrors.ts';
 
 export type NativeCommand = (typeof appConfig.nativeCommands)[keyof typeof appConfig.nativeCommands];
 export type NativeEvent = (typeof appConfig.nativeEvents)[keyof typeof appConfig.nativeEvents];

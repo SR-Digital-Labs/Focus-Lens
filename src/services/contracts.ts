@@ -57,6 +57,11 @@ export interface CameraStatus {
   message?: string;
 }
 
+export interface CvPipelineStatus {
+  running: boolean;
+  message: string;
+}
+
 export interface LiveCameraFrame {
   data: HTMLVideoElement;
   frameIndex: number;

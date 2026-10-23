@@ -8,6 +8,7 @@ import {
   getAwayDetectionStorage,
   type AwayDetectionSnapshot,
 } from '../services/awayDetection.service';
+import { cvService } from '../services/cv.service';
 import { focusLensService } from '../services/focusLensService';
 import { focusTimerService } from '../services/focusTimer.service';
 import {
@@ -88,8 +89,30 @@ export function ActivityMonitoringProvider({ children }: { children: ReactNode }
         console.error('Unable to start local away tracking:', error);
       }
 
+      // Manage CV pipeline lifecycle alongside focus sessions
+      const unsubscribeTimerCv = focusTimerService.subscribe((timerState) => {
+        if (timerState.status === 'running') {
+          if (cvService.isAvailable() && !cvService.isRunning()) {
+            void cvService.start().catch((err) => {
+              console.warn('[ActivityMonitoring] CV pipeline failed to start:', err);
+            });
+          }
+        } else if (timerState.status === 'idle' || timerState.status === 'completed') {
+          if (cvService.isRunning()) {
+            void cvService.stop().catch((err) => {
+              console.warn('[ActivityMonitoring] CV pipeline failed to stop:', err);
+            });
+          }
+        }
+      });
+
       const previousStop = stopServices;
       stopServices = () => {
+        unsubscribeTimerCv();
+        if (cvService.isRunning()) {
+          void cvService.stop().catch(() => {});
+        }
+        cvService.teardown();
         stopAway();
         unsubscribeAway();
         stopMonitor();

@@ -1,18 +1,19 @@
 import { isTauri } from '@tauri-apps/api/core';
-import { appConfig } from '../config/appConfig';
+import { appConfig } from '../config/appConfig.ts';
 import type {
   ActivitySignal,
   CameraStatus,
+  CvPipelineStatus,
   CvResponse,
   ServiceEvent,
   SessionEventPayload,
   Unsubscribe,
-} from './contracts';
-import { sendNativeRequest, subscribeToNativeEvent } from './nativeTransport';
+} from './contracts.ts';
+import { sendNativeRequest, subscribeToNativeEvent } from './nativeTransport.ts';
 import {
   activityEventTracker,
   type ActivityEventTrackerService,
-} from './activityEventTracker.service';
+} from './activityEventTracker.service.ts';
 
 export const focusLensService = {
   camera: {
@@ -62,6 +63,24 @@ export const focusLensService = {
   cv: {
     subscribe(handler: (event: ServiceEvent<CvResponse>) => void): Promise<Unsubscribe> {
       return subscribeToNativeEvent(appConfig.nativeEvents.cvResponse, handler);
+    },
+    async start(): Promise<CvPipelineStatus> {
+      if (!isTauri()) {
+        return { running: false, message: 'Runtime unavailable (not running in Tauri desktop).' };
+      }
+      return sendNativeRequest<Record<string, never>, CvPipelineStatus>(
+        appConfig.nativeCommands.startCvPipeline,
+        {},
+      );
+    },
+    async stop(): Promise<CvPipelineStatus> {
+      if (!isTauri()) {
+        return { running: false, message: 'Runtime unavailable (not running in Tauri desktop).' };
+      }
+      return sendNativeRequest<Record<string, never>, CvPipelineStatus>(
+        appConfig.nativeCommands.stopCvPipeline,
+        {},
+      );
     },
   },
 };

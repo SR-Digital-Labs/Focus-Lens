@@ -8,12 +8,16 @@ Orchestrates one complete frame-processing cycle:
 The pipeline owns the main capture loop and is the only place that
 knows how all services connect together.
 
-Future integration points
---------------------------
-When Phase 7 (Tauri integration) begins, the pipeline will also:
-    * Accept commands from the Tauri IPC layer (start / stop).
-    * Send ``FrameResult`` data back to the Tauri layer instead of
-      (or in addition to) showing the dev preview.
+Tauri Integration (Day 24)
+---------------------------
+In headless / integrated mode the pipeline writes newline-delimited JSON
+to stdout.  Each line is a single ``ActivitySignal`` dict that the
+Tauri Rust layer reads and re-emits as a Tauri event named
+``activity-signal``.  Only detection metadata is written — raw webcam
+frames are never serialised, stored, or transmitted.
+
+Headless mode is enabled by setting ``SHOW_DEV_PREVIEW = False`` in
+cv/config/settings.py, or by instantiating ``CVPipeline(headless=True)``.
 
 Day 05 scope
 ------------
@@ -24,9 +28,12 @@ without displaying anything — useful for background/integrated use.
 
 from __future__ import annotations
 
+import json
+import sys
 import time
+import datetime
 
-from typing import Optional, TYPE_CHECKING
+from typing import Any, Dict, Optional, TYPE_CHECKING
 from config import SHOW_DEV_PREVIEW, TARGET_FPS
 from services.camera_service import CameraService, CameraError
 from services.frame_processor import FrameProcessor
@@ -39,6 +46,56 @@ log = get_logger(__name__)
 
 # Minimum seconds to wait between frames so we don't spin at 100 % CPU.
 _MIN_FRAME_INTERVAL: float = 1.0 / TARGET_FPS if TARGET_FPS > 0 else 0.0
+
+
+def _emit_signal(signal: Dict[str, Any]) -> None:
+    """
+    Write one ActivitySignal as newline-delimited JSON to stdout.
+
+    The Tauri sidecar reads stdout line-by-line and converts each line
+    to a ``activity-signal`` Tauri event.
+
+    Privacy guarantee: only detection metadata keys are included.
+    Raw frame data must never be present in the signal dict.
+    """
+    safe: Dict[str, Any] = {
+        "person_presence": signal.get("person_presence", "UNKNOWN"),
+        "screen_facing": signal.get("screen_facing", "UNKNOWN"),
+        "posture": signal.get("posture", "UNKNOWN"),
+        "confidence": signal.get("confidence", 0.0),
+        "timestamp": signal.get("timestamp", time.time()),
+        "posture_reminder": bool(signal.get("posture_reminder", False)),
+        "occurred_at": datetime.datetime.utcnow().isoformat() + "Z",
+    }
+    try:
+        line = json.dumps(safe, separators=(",", ":"))
+        sys.stdout.write(line + "\n")
+        sys.stdout.flush()
+    except (TypeError, ValueError, OSError) as exc:
+        log.error("Failed to emit signal to stdout: %s", exc)
+
+
+def _emit_cv_status(status: str, error_message: Optional[str] = None) -> None:
+    """
+    Write a ``cv-response`` status line to stdout.
+
+    ``status`` is one of ``'completed'``, ``'unavailable'``, or ``'failed'``.
+    This allows the Tauri sidecar to emit a ``cv-response`` event so the
+    frontend's ``ActivitySessionMonitor`` can update to ``'unavailable'``
+    when the camera is not accessible without treating that as an away event.
+    """
+    payload: Dict[str, Any] = {
+        "__type": "cv_status",
+        "status": status,
+    }
+    if error_message:
+        payload["error"] = error_message
+    try:
+        line = json.dumps(payload, separators=(",", ":"))
+        sys.stdout.write(line + "\n")
+        sys.stdout.flush()
+    except (TypeError, ValueError, OSError) as exc:
+        log.error("Failed to emit cv_status to stdout: %s", exc)
 
 
 class CVPipeline:
@@ -63,13 +120,26 @@ class CVPipeline:
         pipeline.run()   # blocks until the user quits
 
     Call ``pipeline.stop()`` from another thread to request a clean stop.
+
+    Tauri Integration
+    -----------------
+    Pass ``headless=True`` (or set ``SHOW_DEV_PREVIEW = False``) to run
+    without an OpenCV preview window.  In headless mode every state
+    change emits a newline-delimited JSON line to stdout so the Tauri
+    sidecar can forward it to the frontend as an ``activity-signal`` event.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, headless: Optional[bool] = None) -> None:
         self._camera = CameraService()
         self._processor = FrameProcessor()
         self._running = False
-        
+        # headless=True → no preview window; emit JSON signals to stdout
+        # headless=None → respect SHOW_DEV_PREVIEW from config
+        if headless is None:
+            self._headless = not SHOW_DEV_PREVIEW
+        else:
+            self._headless = headless
+
         # Track application state changes across frames
         from services.activity_signal_aggregator import ActivitySignalAggregator
         self._aggregator = ActivitySignalAggregator()
@@ -93,8 +163,9 @@ class CVPipeline:
             * A non-recoverable camera error occurs.
         """
         log.info("=" * 55)
-        log.info("FocusLens — CV Pipeline starting (Day 05)")
+        log.info("FocusLens — CV Pipeline starting (Day 24)")
         log.info("Privacy: all processing is LOCAL — no data leaves this machine.")
+        log.info("Headless mode: %s", self._headless)
         log.info("=" * 55)
 
         try:
@@ -104,6 +175,8 @@ class CVPipeline:
             self._capture_loop()
         except CameraError as exc:
             log.error("Camera error: %s", exc)
+            if self._headless:
+                _emit_cv_status("unavailable", str(exc))
         except KeyboardInterrupt:
             log.info("KeyboardInterrupt received — stopping.")
         finally:
@@ -149,7 +222,7 @@ class CVPipeline:
 
     def _setup_preview(self) -> None:
         """Create the dev-preview window if previewing is enabled."""
-        if SHOW_DEV_PREVIEW:
+        if not self._headless and SHOW_DEV_PREVIEW:
             from app.dev_preview import DevPreview
             self._preview = DevPreview()
 
@@ -196,11 +269,10 @@ class CVPipeline:
 
             # --- Aggregation ---
             # Forward the frame result to the state aggregator.
-            # In Phase 7, this 'signal' will be sent to the Tauri frontend.
+            # In headless / Tauri-integrated mode: emit JSON to stdout.
             signal = self._aggregator.update(frame_result)
-            if signal:
-                # E.g., send via IPC, print as JSON to stdout, etc.
-                pass
+            if signal and self._headless:
+                _emit_signal(signal)
 
             # --- Preview ---
             if self._preview is not None:

@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "test": "node --test --experimental-strip-types tests/focusTimer.test.ts tests/activityEventTracker.test.ts tests/awayTimeCalculator.test.ts tests/focusIndicator.test.ts tests/activitySessionMonitor.test.ts tests/awayDetection.test.ts tests/database.test.ts tests/sessionPersistence.test.ts tests/sessionRetrieval.test.ts tests/wellnessReminder.test.ts",
+    "test": "node --test --experimental-strip-types tests/focusTimer.test.ts tests/activityEventTracker.test.ts tests/awayTimeCalculator.test.ts tests/focusIndicator.test.ts tests/activitySessionMonitor.test.ts tests/awayDetection.test.ts tests/database.test.ts tests/sessionPersistence.test.ts tests/sessionRetrieval.test.ts tests/wellnessReminder.test.ts tests/cvDesktopIntegration.test.ts",
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
