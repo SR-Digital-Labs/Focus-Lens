@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
+import { isTauri } from '@tauri-apps/api/core';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import type { ActivityMonitoringState } from '../services/contracts';
 import { ActivityMonitoringContext } from './activityMonitoring.context';
 import { ActivitySessionMonitor } from '../services/activitySessionMonitor.service';
@@ -39,10 +41,17 @@ export function ActivityMonitoringProvider({ children }: { children: ReactNode }
 
   useEffect(() => {
     let mounted = true;
+    let persistenceAvailable = false;
+    let servicesStopped = false;
     let stopServices: (() => void) | null = null;
+    let flushPersistence: () => Promise<void> = async () => {};
+    let interruptPersistence: () => Promise<void> = flushPersistence;
+    let closeApproved = false;
+    let closeInProgress = false;
+    let unlistenClose: (() => void) | null = null;
+    const desktopWindow = isTauri() ? getCurrentWindow() : null;
 
     const startMonitoring = async () => {
-      let persistenceAvailable = false;
       try {
         await dbService.initialize();
         await sessionService.interruptUnfinished();
@@ -80,9 +89,10 @@ export function ActivityMonitoringProvider({ children }: { children: ReactNode }
             },
           });
           const stopPersistence = persistence.start();
+          flushPersistence = () => persistence.flush();
+          interruptPersistence = () => persistence.interrupt();
           stopServices = () => {
             stopPersistence();
-            void persistence.flush();
           };
         }
       } catch (error) {
@@ -108,25 +118,69 @@ export function ActivityMonitoringProvider({ children }: { children: ReactNode }
 
       const previousStop = stopServices;
       stopServices = () => {
-        unsubscribeTimerCv();
-        if (cvService.isRunning()) {
-          void cvService.stop().catch((error: unknown) => {
-            console.warn('[ActivityMonitoring] CV pipeline failed to stop during cleanup:', error);
-          });
+        if (servicesStopped) {
+          return;
         }
-        cvService.teardown();
+        servicesStopped = true;
+        unsubscribeTimerCv();
+        previousStop?.();
         stopAway();
         unsubscribeAway();
         stopMonitor();
         unsubscribeActivity();
-        previousStop?.();
       };
     };
 
-    void startMonitoring();
+    const startup = startMonitoring();
+    if (desktopWindow) {
+      void desktopWindow.onCloseRequested(async (event) => {
+        if (closeApproved) {
+          return;
+        }
+        event.preventDefault();
+        if (closeInProgress) {
+          return;
+        }
+        closeInProgress = true;
+        try {
+          await startup;
+          stopServices?.();
+          await interruptPersistence();
+          await cvService.stop();
+          cvService.teardown();
+          if (persistenceAvailable) {
+            await sessionService.interruptUnfinished();
+          }
+          await dbService.close();
+          closeApproved = true;
+          await desktopWindow.close();
+        } catch (error) {
+          closeInProgress = false;
+          console.error('Unable to safely close FocusLens desktop resources:', error);
+        }
+      }).then((unlisten) => {
+        if (mounted) {
+          unlistenClose = unlisten;
+        } else {
+          unlisten();
+        }
+      }).catch((error: unknown) => {
+        console.error('Unable to register the desktop close handler:', error);
+      });
+    }
+
     return () => {
       mounted = false;
+      unlistenClose?.();
       stopServices?.();
+      if (!closeApproved) {
+        void cvService.stop().then(() => cvService.teardown()).catch((error: unknown) => {
+          console.warn('[ActivityMonitoring] CV pipeline failed to stop during cleanup:', error);
+        });
+        void flushPersistence().catch((error: unknown) => {
+          console.error('Unable to flush focus-session activity during cleanup:', error);
+        });
+      }
     };
   }, []);
 

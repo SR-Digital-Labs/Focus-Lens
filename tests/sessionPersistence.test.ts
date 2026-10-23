@@ -217,6 +217,52 @@ describe('SessionPersistenceService', () => {
     service.stop();
   });
 
+  it('interrupts an active session and flushes its final timer state on shutdown', async () => {
+    let now = Date.parse('2026-10-15T00:00:00.000Z');
+    const activity = new ActivitySource();
+    const timer = new TimerSource(timerState('running', 42));
+    const away = new AwaySource();
+    const sessions = new Map<string, Session>();
+    const service = new SessionPersistenceService({
+      activity,
+      timer,
+      away,
+      sessions: {
+        async create(session) {
+          sessions.set(session.id, { ...session });
+        },
+        async update(id, changes) {
+          const session = sessions.get(id);
+          assert.ok(session);
+          sessions.set(id, { ...session, ...changes });
+        },
+      },
+      events: { async record() {} },
+      now: () => now,
+    });
+    service.start();
+    activity.publish({
+      sessionId: 'session-shutdown',
+      status: 'active',
+      signal: null,
+      error: null,
+    });
+    await service.flush();
+
+    now += 1_000;
+    timer.publish(timerState('running', 43));
+    await service.interrupt();
+
+    const interrupted = sessions.get('session-shutdown');
+    assert.ok(interrupted);
+    assert.equal(interrupted.status, 'interrupted');
+    assert.equal(interrupted.elapsedSeconds, 43);
+    assert.equal(interrupted.endedAt, new Date(now).toISOString());
+    assert.equal(activity.subscriberCount, 0);
+    assert.equal(timer.subscriberCount, 0);
+    assert.equal(away.subscriberCount, 0);
+  });
+
   it('handles early termination (cancellation) preserving status, actual elapsed duration, and ends session', async () => {
     let now = Date.parse('2026-10-15T00:00:00.000Z');
     const activity = new ActivitySource();

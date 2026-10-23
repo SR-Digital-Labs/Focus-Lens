@@ -80,6 +80,14 @@ export class SessionPersistenceService {
     return this.pendingWrites;
   }
 
+  async interrupt(): Promise<void> {
+    this.stop();
+    if (this.currentSession) {
+      this.finishSession('interrupted', this.timer.getState());
+    }
+    await this.flush();
+  }
+
   private onActivityState(state: ActivityMonitoringState): void {
     this.previousActivityState = state;
     if (!state.sessionId) {
