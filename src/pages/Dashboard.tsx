@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Moon, Sun, Sunrise, Sunset, Target } from 'lucide-react';
 import { useNavigate, Link } from 'react-router-dom';
 import DashboardCatMascot from '../components/DashboardCatMascot';
+import { getDashboardMetrics, type DashboardMetrics } from '../services/dashboardMetrics.service';
 import { sessionRetrievalService } from '../services/sessionRetrieval.service';
 import type { Session } from '../types';
 
@@ -58,10 +59,20 @@ function formatDuration(totalMinutes: number): string {
   return `${minutes}m`;
 }
 
+function formatSeconds(totalSeconds: number): string {
+  const seconds = Math.max(0, Math.floor(totalSeconds));
+  const hours = Math.floor(seconds / 3_600);
+  const minutes = Math.floor((seconds % 3_600) / 60);
+  if (hours) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+}
+
 const Dashboard: React.FC<{ username: string }> = ({ username }) => {
   const navigate = useNavigate();
   const [now, setNow] = useState(() => new Date());
   const [allocation, setAllocation] = useState<DaypartAllocation>(readAllocation);
+  const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
+  const [metricsError, setMetricsError] = useState(false);
 
   const [recentSessions, setRecentSessions] = useState<Session[]>([]);
 
@@ -71,6 +82,16 @@ const Dashboard: React.FC<{ username: string }> = ({ username }) => {
         setRecentSessions(res.data);
       }
     });
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    getDashboardMetrics().then((result) => {
+      if (active) setMetrics(result);
+    }).catch(() => {
+      if (active) setMetricsError(true);
+    });
+    return () => { active = false; };
   }, []);
 
   useEffect(() => {
@@ -131,22 +152,23 @@ const Dashboard: React.FC<{ username: string }> = ({ username }) => {
 
       <div className="grid grid-cols-4">
         <div className="card">
-          <div className="card-value">2h 45m</div>
-          <div className="card-label">Today's focus time</div>
+          <div className="card-value">{metrics ? formatSeconds(metrics.totalFocusTimeSeconds) : '—'}</div>
+          <div className="card-label">Total focus time</div>
         </div>
         <div className="card">
-          <div className="card-value">4</div>
-          <div className="card-label">Sessions today</div>
+          <div className="card-value">{metrics?.sessionCount ?? '—'}</div>
+          <div className="card-label">Sessions tracked</div>
         </div>
         <div className="card">
-          <div className="card-value">41m</div>
-          <div className="card-label">Average duration</div>
+          <div className="card-value">{metrics ? formatSeconds(metrics.averageSessionLengthSeconds) : '—'}</div>
+          <div className="card-label">Average session length</div>
         </div>
         <div className="card">
-          <div className="card-value">18m</div>
+          <div className="card-value">{metrics ? formatSeconds(metrics.totalAwayTimeSeconds) : '—'}</div>
           <div className="card-label">Total away time</div>
         </div>
       </div>
+      {metricsError && <p role="alert" className="history-error">Dashboard metrics could not be loaded from the local database.</p>}
 
       <section className="card allocation-panel" aria-labelledby="allocation-title">
         <div className="allocation-header">

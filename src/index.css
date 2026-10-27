@@ -1,4 +1,4 @@
-:root {
+﻿:root {
   --bg-primary: #121212;
   --bg-secondary: #1e1e1e;
   --bg-tertiary: #2c2c2c;
@@ -776,7 +776,7 @@ body {
 }
 
 /* ==========================================================================
-   Day 16 — Focus Session Layout & Focus Timer
+   Day 16 â€” Focus Session Layout & Focus Timer
    ========================================================================== */
 
 .focus-session-page {
@@ -2244,16 +2244,11 @@ body {
   }
 }
 
-<<<<<<< HEAD
 .history-page {
   display: grid;
   gap: 20px;
 }
 
-.history-header,
-.history-session-main,
-.history-pagination {
-=======
 /* ==========================================================================
    Navigation and State Flow Components (Day 25)
    ========================================================================== */
@@ -2279,14 +2274,12 @@ body {
 }
 
 .history-page-header {
->>>>>>> 72d692c492b01401bdf8258be2f16b49e12c31e7
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
 }
 
-<<<<<<< HEAD
 .history-header h1 {
   margin-bottom: 4px;
 }
@@ -2384,7 +2377,6 @@ body {
   .history-filter, .history-filter select { width: 100%; }
   .history-pagination { justify-content: space-between; }
 }
-=======
 .history-page-header h1 {
   font-size: 1.85rem;
   font-weight: 700;
@@ -2961,4 +2953,5 @@ body {
   margin-top: 8px;
 }
 
->>>>>>> 72d692c492b01401bdf8258be2f16b49e12c31e7
+
+
