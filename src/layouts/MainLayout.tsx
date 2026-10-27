@@ -49,7 +49,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ username, onLogout }) => {
       case '/history': return 'Session History';
       case '/analytics': return 'Analytics';
       case '/settings': return 'Settings';
-      default: return 'FocusLens';
+      default: return 'Page Not Found';
     }
   };
 
@@ -64,7 +64,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ username, onLogout }) => {
           <span>FocusLens</span>
         </div>
         <nav className="sidebar-nav">
-          <NavLink to="/" aria-label="Dashboard" title="Dashboard" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+          <NavLink to="/" end aria-label="Dashboard" title="Dashboard" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
             <LayoutDashboard size={20} /> Dashboard
           </NavLink>
           <NavLink to="/session" aria-label="Focus Session" title="Focus Session" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
