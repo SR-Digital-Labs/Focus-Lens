@@ -2243,3 +2243,115 @@ body {
     animation: none;
   }
 }
+
+.history-page {
+  display: grid;
+  gap: 20px;
+}
+
+.history-header,
+.history-session-main,
+.history-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.history-header h1 {
+  margin-bottom: 4px;
+}
+
+.history-header p,
+.history-filter > span,
+.history-session-details dt,
+.history-pagination > span {
+  color: var(--text-secondary);
+}
+
+.history-filter {
+  display: grid;
+  gap: 5px;
+  font-size: 0.82rem;
+}
+
+.history-filter select {
+  min-width: 170px;
+  padding: 9px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.history-list {
+  display: grid;
+  gap: 12px;
+}
+
+.history-session {
+  display: grid;
+  gap: 16px;
+}
+
+.history-session-main time {
+  font-weight: 600;
+}
+
+.history-status {
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  text-transform: capitalize;
+}
+
+.history-status.status-completed { color: #86efac; background: rgba(34, 197, 94, 0.12); }
+.history-status.status-running { color: #a5b4fc; background: rgba(99, 102, 241, 0.15); }
+.history-status.status-paused { color: #fcd34d; background: rgba(245, 158, 11, 0.13); }
+
+.history-session-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 28px;
+}
+
+.history-session-details div {
+  display: grid;
+  gap: 2px;
+}
+
+.history-session-details dt { font-size: 0.78rem; }
+.history-session-details dd { font-weight: 500; }
+
+.history-message {
+  padding: 24px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+}
+
+.history-error {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+  color: #fca5a5;
+}
+
+.history-pagination {
+  justify-content: center;
+}
+
+.history-pagination .btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+@media (max-width: 600px) {
+  .history-header { align-items: flex-start; flex-direction: column; }
+  .history-filter, .history-filter select { width: 100%; }
+  .history-pagination { justify-content: space-between; }
+}
