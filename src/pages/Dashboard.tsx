@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { Moon, Sun, Sunrise, Sunset, Target } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import DashboardCatMascot from '../components/DashboardCatMascot';
+import { sessionRetrievalService } from '../services/sessionRetrieval.service';
+import type { Session } from '../types';
 
 type DaypartId = 'morning' | 'afternoon' | 'evening' | 'night';
 type DaypartAllocation = Record<DaypartId, number>;
@@ -60,6 +62,16 @@ const Dashboard: React.FC<{ username: string }> = ({ username }) => {
   const navigate = useNavigate();
   const [now, setNow] = useState(() => new Date());
   const [allocation, setAllocation] = useState<DaypartAllocation>(readAllocation);
+
+  const [recentSessions, setRecentSessions] = useState<Session[]>([]);
+
+  useEffect(() => {
+    void sessionRetrievalService.getRecentSessionsResult(3).then((res) => {
+      if (res.success) {
+        setRecentSessions(res.data);
+      }
+    });
+  }, []);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 1_000);
@@ -208,28 +220,38 @@ const Dashboard: React.FC<{ username: string }> = ({ username }) => {
       <div className="card">
         <div className="recent-sessions-header">
           <h2>Recent Sessions</h2>
-          <a href="/history" style={{ color: 'var(--accent-color)', textDecoration: 'none', fontSize: '0.875rem' }}>
+          <Link to="/history" style={{ color: 'var(--accent-color)', textDecoration: 'none', fontSize: '0.875rem' }}>
             View History →
-          </a>
+          </Link>
         </div>
         
-        <div className="session-list">
-          <div className="session-item">
-            <div className="session-time">09:00</div>
-            <div className="session-duration">45 min</div>
-            <div className="session-score">Focus Indicator 86%</div>
+        {recentSessions.length === 0 ? (
+          <p style={{ color: 'var(--text-secondary)', padding: '12px 0', fontSize: '0.9rem' }}>
+            No sessions recorded yet today. Start a focus session above to begin tracking.
+          </p>
+        ) : (
+          <div className="session-list">
+            {recentSessions.map((s) => {
+              const timeStr = (() => {
+                try {
+                  return new Date(s.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                } catch {
+                  return s.startedAt;
+                }
+              })();
+              const durationMin = Math.round((s.elapsedSeconds || s.plannedDurationSeconds) / 60);
+              return (
+                <div key={s.id} className="session-item">
+                  <div className="session-time">{timeStr}</div>
+                  <div className="session-duration">{durationMin} min</div>
+                  <div className="session-score" style={{ textTransform: 'capitalize' }}>
+                    Status: {s.status}
+                  </div>
+                </div>
+              );
+            })}
           </div>
-          <div className="session-item">
-            <div className="session-time">11:30</div>
-            <div className="session-duration">60 min</div>
-            <div className="session-score">Focus Indicator 81%</div>
-          </div>
-          <div className="session-item">
-            <div className="session-time">14:00</div>
-            <div className="session-duration">30 min</div>
-            <div className="session-score">Focus Indicator 90%</div>
-          </div>
-        </div>
+        )}
       </div>
       </div>
     </div>

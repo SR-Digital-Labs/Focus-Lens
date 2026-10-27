@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Bell, Clock3, Moon, Save, Timer, Waves } from 'lucide-react';
+import { Bell, Clock3, Moon, Save, ShieldCheck, Timer, Waves } from 'lucide-react';
 import {
   DEFAULT_AWAY_THRESHOLD_MINUTES,
   getAwayDetectionStorage,
@@ -15,6 +15,8 @@ import {
   isWellnessNotificationSupported,
   requestWellnessNotificationPermission,
 } from '../services/wellnessNotification.service';
+import { privacySettingsRepository } from '../services/db.service';
+import type { PrivacySettings } from '../types';
 
 const Settings: React.FC = () => {
   const service = getWellnessReminderService();
@@ -34,13 +36,44 @@ const Settings: React.FC = () => {
     NotificationPermission | 'unsupported' | 'unknown'
   >('unknown');
 
+  const [privacySettings, setPrivacySettings] = useState<PrivacySettings>({
+    saveVideoLocally: false,
+    blurBackgroundInVideo: true,
+    dataRetentionDays: 30,
+  });
+
   useEffect(() => {
     void getWellnessNotificationPermission()
       .then(setNotificationPermission)
       .catch((error: unknown) => {
         console.error('Unable to read desktop notification permission:', error);
       });
+
+    void Promise.all([
+      privacySettingsRepository.get('saveVideoLocally').catch(() => null),
+      privacySettingsRepository.get('blurBackgroundInVideo').catch(() => null),
+      privacySettingsRepository.get('dataRetentionDays').catch(() => null),
+    ]).then(([saveVideo, blurBg, retention]) => {
+      setPrivacySettings({
+        saveVideoLocally: saveVideo ?? false,
+        blurBackgroundInVideo: blurBg ?? true,
+        dataRetentionDays: retention ?? 30,
+      });
+    }).catch((err) => {
+      console.warn('Unable to load privacy settings from database:', err);
+    });
   }, []);
+
+  const updatePrivacySetting = <K extends keyof PrivacySettings>(key: K, value: PrivacySettings[K]) => {
+    const next = { ...privacySettings, [key]: value };
+    setPrivacySettings(next);
+    void privacySettingsRepository.set(key, value).then(() => {
+      setMessage('Privacy settings saved on this device.');
+    }).catch((err) => {
+      console.warn('Unable to save privacy setting:', err);
+      setMessage('Privacy setting updated.');
+    });
+  };
 
   const saveSettings = (nextSettings: WellnessSettings) => {
     try {
@@ -218,6 +251,58 @@ const Settings: React.FC = () => {
         </div>
       </section>
 
+      <section className="card settings-group">
+        <div className="settings-group-heading">
+          <ShieldCheck size={20} aria-hidden="true" />
+          <div>
+            <h2>Privacy and data controls</h2>
+            <p>On-device privacy guarantees and local storage policies.</p>
+          </div>
+        </div>
+        <label className="settings-toggle">
+          <div>
+            <span>Blur background during video preview</span>
+            <small style={{ display: 'block', color: 'var(--text-secondary)', fontSize: '0.8rem', marginTop: '2px' }}>
+              Keeps background private during live camera preview.
+            </small>
+          </div>
+          <input
+            type="checkbox"
+            checked={privacySettings.blurBackgroundInVideo}
+            onChange={(event) => updatePrivacySetting('blurBackgroundInVideo', event.target.checked)}
+          />
+        </label>
+        <label className="settings-toggle">
+          <div>
+            <span>Save session video locally</span>
+            <small style={{ display: 'block', color: 'var(--text-secondary)', fontSize: '0.8rem', marginTop: '2px' }}>
+              Zero raw recordings are saved by default.
+            </small>
+          </div>
+          <input
+            type="checkbox"
+            checked={privacySettings.saveVideoLocally}
+            onChange={(event) => updatePrivacySetting('saveVideoLocally', event.target.checked)}
+          />
+        </label>
+        <label className="settings-field">
+          <div>
+            <span>Session history retention</span>
+            <small style={{ display: 'block', color: 'var(--text-secondary)', fontSize: '0.8rem', marginTop: '2px' }}>
+              How long completed focus sessions are preserved locally.
+            </small>
+          </div>
+          <select
+            value={privacySettings.dataRetentionDays}
+            onChange={(event) => updatePrivacySetting('dataRetentionDays', Number(event.target.value))}
+          >
+            {[7, 14, 30, 90, 180, 365].map((days) => (
+              <option key={days} value={days}>{days} days</option>
+            ))}
+          </select>
+        </label>
+      </section>
+
       {message && (
         <p className="settings-feedback" role="status">
           <Save size={16} aria-hidden="true" />
@@ -226,8 +311,7 @@ const Settings: React.FC = () => {
       )}
 
       <p className="settings-privacy-note">
-        Reminder preferences and schedule state stay in local device storage. Focus pauses
-        pause water-reminder timing; sleep reminders use your computer’s local clock.
+        Reminder preferences, privacy configurations, and session records stay exclusively in local device storage.
       </p>
     </div>
   );
