@@ -1,4 +1,4 @@
-﻿:root {
+:root {
   --bg-primary: #121212;
   --bg-secondary: #1e1e1e;
   --bg-tertiary: #2c2c2c;
@@ -2364,12 +2364,71 @@ body {
 }
 
 .history-pagination {
-  justify-content: center;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 4px;
+}
+
+.history-pagination-info {
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+}
+
+.history-pagination-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .history-pagination .btn:disabled {
   cursor: not-allowed;
   opacity: 0.45;
+}
+
+.history-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.history-controls-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.history-control-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.history-select {
+  padding: 6px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  font-family: inherit;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.history-select:focus {
+  border-color: var(--accent-color);
 }
 
 @media (max-width: 600px) {

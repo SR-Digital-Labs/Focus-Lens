@@ -21,6 +21,17 @@ export interface Session {
   startTime?: number;
   duration?: number;
   isActive?: boolean;
+  /**
+   * Confirmed away duration in seconds during active session time.
+   * Provided when Ragavi connects stored activity event calculations to session retrieval.
+   */
+  awayDurationSeconds?: number;
+  /**
+   * Computed Focus Indicator score (0 to 100).
+   * Provided when Ragavi connects stored activity event calculations to session retrieval.
+   */
+  focusScore?: number;
+  focusIndicatorScore?: number;
 }
 
 export type FocusDurationPreset = 25 | 45 | 60;
