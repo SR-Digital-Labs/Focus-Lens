@@ -158,13 +158,14 @@ export const STANDARD_DAY_INTERVALS = [
  */
 function resolveSessionScore(session: Session, scoreMap?: Map<string, number>): number | null {
   if (typeof session.focusScore === 'number' && Number.isFinite(session.focusScore)) {
-    return session.focusScore;
+    return Math.min(100, Math.max(0, session.focusScore));
   }
   if (typeof session.focusIndicatorScore === 'number' && Number.isFinite(session.focusIndicatorScore)) {
-    return session.focusIndicatorScore;
+    return Math.min(100, Math.max(0, session.focusIndicatorScore));
   }
   if (scoreMap && scoreMap.has(session.id)) {
-    return scoreMap.get(session.id)!;
+    const score = scoreMap.get(session.id);
+    if (typeof score === 'number' && Number.isFinite(score)) return Math.min(100, Math.max(0, score));
   }
   return null;
 }
@@ -185,6 +186,7 @@ export function aggregateDailyData(
 
   // Filter sessions that started on this day
   const daySessions = sessions.filter((s) => {
+    if (!s || typeof s.startedAt !== 'string' || !Number.isFinite(s.elapsedSeconds) || s.elapsedSeconds < 0) return false;
     const timestamp = Date.parse(s.startedAt);
     return Number.isFinite(timestamp) && timestamp >= startMs && timestamp <= endMs;
   });
@@ -207,8 +209,8 @@ export function aggregateDailyData(
   const intervalScores: number[][] = intervals.map(() => []);
 
   for (const session of daySessions) {
-    const focusSec = Math.max(0, session.elapsedSeconds || 0);
-    const awaySec = Math.max(0, session.awayDurationSeconds || 0);
+    const focusSec = session.elapsedSeconds;
+    const awaySec = Number.isFinite(session.awayDurationSeconds) ? Math.max(0, session.awayDurationSeconds as number) : 0;
     const score = resolveSessionScore(session, scoreMap);
 
     totalFocusSeconds += focusSec;
@@ -295,6 +297,7 @@ export function aggregateWeeklyData(
   let totalSessions = 0;
 
   for (const session of sessions) {
+    if (!session || typeof session.startedAt !== 'string' || !Number.isFinite(session.elapsedSeconds) || session.elapsedSeconds < 0) continue;
     const timestamp = Date.parse(session.startedAt);
     if (!Number.isFinite(timestamp) || timestamp < startMs || timestamp > endMs) {
       continue;
@@ -305,8 +308,8 @@ export function aggregateWeeklyData(
     // Convert JS Sunday (0) to index 6, Mon (1) to 0 ... Sat (6) to 5
     const bucketIdx = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
 
-    const focusSec = Math.max(0, session.elapsedSeconds || 0);
-    const awaySec = Math.max(0, session.awayDurationSeconds || 0);
+    const focusSec = session.elapsedSeconds;
+    const awaySec = Number.isFinite(session.awayDurationSeconds) ? Math.max(0, session.awayDurationSeconds as number) : 0;
     const score = resolveSessionScore(session, scoreMap);
 
     totalFocusSeconds += focusSec;

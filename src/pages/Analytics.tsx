@@ -61,7 +61,15 @@ const Analytics: React.FC = () => {
     try {
       // 1. Fetch real session records from SessionRetrievalService
       const sessionsResult = await sessionRetrievalService.getAllSessionsResult({ order: 'desc' });
-      const loadedSessions = sessionsResult.success ? sessionsResult.data : [];
+      if (!sessionsResult.success) {
+        throw new Error(sessionsResult.error || 'Unable to retrieve saved focus sessions.');
+      }
+      const loadedSessions = sessionsResult.data.filter((session) =>
+        session && typeof session.id === 'string' &&
+        Number.isFinite(Date.parse(session.startedAt)) &&
+        Number.isFinite(session.elapsedSeconds) && session.elapsedSeconds >= 0 &&
+        Number.isFinite(session.plannedDurationSeconds) && session.plannedDurationSeconds > 0,
+      );
       setSessions(loadedSessions);
 
       // 2. Fetch metrics using Ragavi's getDashboardMetrics service implementation
@@ -73,8 +81,6 @@ const Analytics: React.FC = () => {
         if (loadedSessions.length > 0) {
           const derived = calculateDashboardMetrics(loadedSessions, []);
           setMetrics(derived);
-        } else if (!sessionsResult.success) {
-          throw metricsErr;
         } else {
           setMetrics(calculateDashboardMetrics([], []));
         }

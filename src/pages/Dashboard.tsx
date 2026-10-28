@@ -72,15 +72,24 @@ const Dashboard: React.FC<{ username: string }> = ({ username }) => {
   const [now, setNow] = useState(() => new Date());
   const [allocation, setAllocation] = useState<DaypartAllocation>(readAllocation);
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
+  const [metricsLoading, setMetricsLoading] = useState(true);
   const [metricsError, setMetricsError] = useState(false);
 
   const [recentSessions, setRecentSessions] = useState<Session[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(true);
+  const [sessionsError, setSessionsError] = useState(false);
 
   useEffect(() => {
     void sessionRetrievalService.getRecentSessionsResult(3).then((res) => {
       if (res.success) {
         setRecentSessions(res.data);
+      } else {
+        setSessionsError(true);
       }
+      setSessionsLoading(false);
+    }).catch(() => {
+      setSessionsError(true);
+      setSessionsLoading(false);
     });
   }, []);
 
@@ -90,6 +99,8 @@ const Dashboard: React.FC<{ username: string }> = ({ username }) => {
       if (active) setMetrics(result);
     }).catch(() => {
       if (active) setMetricsError(true);
+    }).finally(() => {
+      if (active) setMetricsLoading(false);
     });
     return () => { active = false; };
   }, []);
@@ -152,23 +163,24 @@ const Dashboard: React.FC<{ username: string }> = ({ username }) => {
 
       <div className="grid grid-cols-4">
         <div className="card">
-          <div className="card-value">{metrics ? formatSeconds(metrics.totalFocusTimeSeconds) : '—'}</div>
+          <div className="card-value">{metrics ? formatSeconds(metrics.totalFocusTimeSeconds) : metricsLoading ? '…' : '—'}</div>
           <div className="card-label">Total focus time</div>
         </div>
         <div className="card">
-          <div className="card-value">{metrics?.sessionCount ?? '—'}</div>
+          <div className="card-value">{metrics?.sessionCount ?? (metricsLoading ? '…' : '—')}</div>
           <div className="card-label">Sessions tracked</div>
         </div>
         <div className="card">
-          <div className="card-value">{metrics ? formatSeconds(metrics.averageSessionLengthSeconds) : '—'}</div>
+          <div className="card-value">{metrics ? formatSeconds(metrics.averageSessionLengthSeconds) : metricsLoading ? '…' : '—'}</div>
           <div className="card-label">Average session length</div>
         </div>
         <div className="card">
-          <div className="card-value">{metrics ? formatSeconds(metrics.totalAwayTimeSeconds) : '—'}</div>
+          <div className="card-value">{metrics ? formatSeconds(metrics.totalAwayTimeSeconds) : metricsLoading ? '…' : '—'}</div>
           <div className="card-label">Total away time</div>
         </div>
       </div>
-      {metricsError && <p role="alert" className="history-error">Dashboard metrics could not be loaded from the local database.</p>}
+      {metricsLoading && <p role="status" aria-live="polite">Loading your focus metrics…</p>}
+      {metricsError && <p role="alert" className="history-error">Dashboard metrics could not be loaded from the local database. Refresh the page to try again.</p>}
 
       <section className="card allocation-panel" aria-labelledby="allocation-title">
         <div className="allocation-header">
@@ -247,7 +259,11 @@ const Dashboard: React.FC<{ username: string }> = ({ username }) => {
           </Link>
         </div>
         
-        {recentSessions.length === 0 ? (
+        {sessionsLoading ? (
+          <p role="status" aria-live="polite" style={{ color: 'var(--text-secondary)', padding: '12px 0', fontSize: '0.9rem' }}>Loading recent sessions…</p>
+        ) : sessionsError ? (
+          <p role="alert" className="history-error">Recent sessions could not be loaded. Refresh the page to try again.</p>
+        ) : recentSessions.length === 0 ? (
           <p style={{ color: 'var(--text-secondary)', padding: '12px 0', fontSize: '0.9rem' }}>
             No sessions recorded yet today. Start a focus session above to begin tracking.
           </p>
