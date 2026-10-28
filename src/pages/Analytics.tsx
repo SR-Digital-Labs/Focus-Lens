@@ -23,6 +23,7 @@ import {
 } from '../services/dashboardMetrics.service';
 import { sessionRetrievalService } from '../services/sessionRetrieval.service';
 import { useFocusTimer } from '../hooks/useFocusTimer';
+import { AnalyticsCharts } from '../components/AnalyticsCharts';
 import type { Session } from '../types';
 import {
   formatSessionDate,
@@ -129,6 +130,24 @@ const Analytics: React.FC = () => {
       hasData: totalSessions > 0,
     };
   }, [metrics, sessions]);
+
+  // Map sessionId to calculated focus score for chart annotations
+  const scoreMap = useMemo(() => {
+    const map = new Map<string, number>();
+    if (metrics?.focusIndicators) {
+      for (const fi of metrics.focusIndicators) {
+        if (
+          fi.sessionId &&
+          fi.status === 'calculated' &&
+          typeof fi.score === 'number' &&
+          Number.isFinite(fi.score)
+        ) {
+          map.set(fi.sessionId, fi.score);
+        }
+      }
+    }
+    return map;
+  }, [metrics]);
 
   const isLiveSession = activeTimerStatus === 'running' || activeTimerStatus === 'paused';
   const recentSessions = sessions.slice(0, 5);
@@ -404,22 +423,10 @@ const Analytics: React.FC = () => {
                 </div>
               </div>
             </div>
-
-            {/* Day 28 Prepared Chart Placeholder Container */}
-            <div className="analytics-charts-placeholder" aria-label="Daily and weekly charts container (Day 28)">
-              <BarChart3 size={34} color="var(--accent-color)" aria-hidden="true" />
-              <h3>Daily & Weekly Focus Visualization</h3>
-              <p>
-                Interactive daily attention timeline charts and weekly productivity distributions are planned
-                for implementation on Day 28.
-              </p>
-              <div className="analytics-charts-pills">
-                <span className="analytics-charts-pill">Daily Timeline Chart (Day 28)</span>
-                <span className="analytics-charts-pill">Weekly Daypart Distribution (Day 28)</span>
-                <span className="analytics-charts-pill">Hourly Focus Heatmap (Day 28)</span>
-              </div>
-            </div>
           </section>
+
+          {/* Interactive Daily & Weekly Visualizations (Day 28) */}
+          <AnalyticsCharts sessions={sessions} scoreMap={scoreMap} />
 
           {/* Recent Sessions Summary Section */}
           {recentSessions.length > 0 && (

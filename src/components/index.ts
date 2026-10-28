@@ -6,3 +6,4 @@ export * from './SectionContainer';
 export * from './NavItem';
 export * from './FocusTimer';
 export { default as DashboardCatMascot } from './DashboardCatMascot';
+export * from './AnalyticsCharts';
