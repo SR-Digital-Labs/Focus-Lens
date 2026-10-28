@@ -17,7 +17,7 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import {
-  getDashboardMetrics,
+  getDashboardAnalytics,
   calculateDashboardMetrics,
   type DashboardMetrics,
 } from '../services/dashboardMetrics.service';
@@ -59,31 +59,31 @@ const Analytics: React.FC = () => {
     setError(null);
 
     try {
-      // 1. Fetch real session records from SessionRetrievalService
-      const sessionsResult = await sessionRetrievalService.getAllSessionsResult({ order: 'desc' });
-      if (!sessionsResult.success) {
-        throw new Error(sessionsResult.error || 'Unable to retrieve saved focus sessions.');
-      }
-      const loadedSessions = sessionsResult.data.filter((session) =>
-        session && typeof session.id === 'string' &&
-        Number.isFinite(Date.parse(session.startedAt)) &&
-        Number.isFinite(session.elapsedSeconds) && session.elapsedSeconds >= 0 &&
-        Number.isFinite(session.plannedDurationSeconds) && session.plannedDurationSeconds > 0,
-      );
-      setSessions(loadedSessions);
-
-      // 2. Fetch metrics using Ragavi's getDashboardMetrics service implementation
       try {
-        const result = await getDashboardMetrics();
-        setMetrics(result);
-      } catch (metricsErr) {
-        // Fallback: If running outside Tauri SQLite environment, compute using pure calculation service
-        if (loadedSessions.length > 0) {
-          const derived = calculateDashboardMetrics(loadedSessions, []);
-          setMetrics(derived);
-        } else {
-          setMetrics(calculateDashboardMetrics([], []));
-        }
+        // One read supplies both the summary cards and chart-ready records.
+        const analytics = await getDashboardAnalytics();
+        setSessions(analytics.sessions);
+        setMetrics(analytics.metrics);
+      } catch {
+        // Keep a useful dashboard in environments where event queries are unavailable.
+        const sessionsResult = await sessionRetrievalService.getAllSessionsResult({ order: 'desc' });
+        if (!sessionsResult.success) throw new Error(sessionsResult.error || 'Unable to retrieve saved focus sessions.');
+        const loadedSessions = sessionsResult.data.filter((session) =>
+          session && typeof session.id === 'string' &&
+          Number.isFinite(Date.parse(session.startedAt)) &&
+          Number.isFinite(session.elapsedSeconds) && session.elapsedSeconds >= 0 &&
+          Number.isFinite(session.plannedDurationSeconds) && session.plannedDurationSeconds > 0,
+        );
+        const derived = calculateDashboardMetrics(loadedSessions, []);
+        const scoreById = new Map(derived.focusIndicators
+          .filter((indicator) => indicator.status === 'calculated' && typeof indicator.score === 'number' && Number.isFinite(indicator.score))
+          .map((indicator) => [indicator.sessionId, indicator.score as number]));
+        setSessions(loadedSessions.map((session) => ({
+          ...session,
+          awayDurationSeconds: Number.isFinite(session.awayDurationSeconds) ? session.awayDurationSeconds : 0,
+          ...(scoreById.has(session.id) ? { focusScore: scoreById.get(session.id) } : {}),
+        })));
+        setMetrics(derived);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to retrieve analytics data from local database.');

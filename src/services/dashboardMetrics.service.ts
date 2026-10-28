@@ -11,6 +11,12 @@ export interface DashboardMetrics {
   focusIndicators: FocusIndicatorResult[];
 }
 
+export interface DashboardAnalyticsData {
+  metrics: DashboardMetrics;
+  /** Sessions enriched with the derived values consumed by the trend charts. */
+  sessions: Session[];
+}
+
 /**
  * Metrics are based on confirmed elapsed seconds in persisted session records.
  * All persisted statuses count as sessions; unfinished records contribute only
@@ -41,12 +47,34 @@ export function calculateDashboardMetrics(
   };
 }
 
-/** Load the persisted source records and calculate dashboard metrics. */
-export async function getDashboardMetrics(): Promise<DashboardMetrics> {
+/** Load source records once so dashboard cards and charts use the same data. */
+export async function getDashboardAnalytics(): Promise<DashboardAnalyticsData> {
   const { activityEventRepository, sessionRepository } = await import('./db.service.ts');
   const sessions = await sessionRepository.getAll({ order: 'desc' });
   const eventGroups = await Promise.all(sessions.map((session) => activityEventRepository.listBySession(session.id)));
-  return calculateDashboardMetrics(sessions, eventGroups.flat());
+  const events = eventGroups.flat();
+  const metrics = calculateDashboardMetrics(sessions, events);
+  const indicatorBySession = new Map(metrics.focusIndicators.map((indicator) => [indicator.sessionId, indicator]));
+  const usableSessions = sessions.filter(isUsableSession);
+
+  return {
+    metrics,
+    sessions: usableSessions.map((session) => {
+      const indicator = indicatorBySession.get(session.id);
+      return {
+        ...session,
+        awayDurationSeconds: awayDurationForSession(events.filter(isUsableAwayEvent), session.id),
+        ...(indicator?.status === 'calculated' && typeof indicator.score === 'number' && Number.isFinite(indicator.score)
+          ? { focusScore: indicator.score }
+          : {}),
+      };
+    }),
+  };
+}
+
+/** Compatibility helper for consumers that only need summary metrics. */
+export async function getDashboardMetrics(): Promise<DashboardMetrics> {
+  return (await getDashboardAnalytics()).metrics;
 }
 
 function isUsableSession(session: Session): boolean {
