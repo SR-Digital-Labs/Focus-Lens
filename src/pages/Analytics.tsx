@@ -1,5 +1,5 @@
-import React, { useEffect, useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useCallback, useEffect, useState, useMemo } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
 import {
   BarChart3,
   Clock,
@@ -10,10 +10,28 @@ import {
   RotateCw,
   AlertCircle,
   ShieldCheck,
+  UserMinus,
+  Eye,
+  Activity,
+  Zap,
+  ArrowRight,
 } from 'lucide-react';
+import {
+  getDashboardMetrics,
+  calculateDashboardMetrics,
+  type DashboardMetrics,
+} from '../services/dashboardMetrics.service';
 import { sessionRetrievalService } from '../services/sessionRetrieval.service';
 import { useFocusTimer } from '../hooks/useFocusTimer';
 import type { Session } from '../types';
+import {
+  formatSessionDate,
+  formatSessionTime,
+  formatSessionDuration,
+  formatSessionAwayDuration,
+  getStatusBadgeClass,
+  getStatusLabel,
+} from '../utils/historyFormatters';
 
 function formatHoursMinutes(totalSeconds: number): string {
   const safe = Math.max(0, Math.floor(totalSeconds));
@@ -27,74 +45,101 @@ function formatHoursMinutes(totalSeconds: number): string {
 const Analytics: React.FC = () => {
   const navigate = useNavigate();
   const { status: activeTimerStatus, formattedRemaining } = useFocusTimer();
+
+  const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  const loadData = async (isRefresh = false) => {
+  const loadData = useCallback(async (isRefresh = false) => {
     if (isRefresh) {
       setLoading(true);
     }
     setError(null);
+
     try {
-      const result = await sessionRetrievalService.getAllSessionsResult({ order: 'desc' });
-      if (result.success) {
-        setSessions(result.data);
-      } else {
-        setError(result.error);
+      // 1. Fetch real session records from SessionRetrievalService
+      const sessionsResult = await sessionRetrievalService.getAllSessionsResult({ order: 'desc' });
+      const loadedSessions = sessionsResult.success ? sessionsResult.data : [];
+      setSessions(loadedSessions);
+
+      // 2. Fetch metrics using Ragavi's getDashboardMetrics service implementation
+      try {
+        const result = await getDashboardMetrics();
+        setMetrics(result);
+      } catch (metricsErr) {
+        // Fallback: If running outside Tauri SQLite environment, compute using pure calculation service
+        if (loadedSessions.length > 0) {
+          const derived = calculateDashboardMetrics(loadedSessions, []);
+          setMetrics(derived);
+        } else if (!sessionsResult.success) {
+          throw metricsErr;
+        } else {
+          setMetrics(calculateDashboardMetrics([], []));
+        }
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to retrieve analytics data.');
+      setError(err instanceof Error ? err.message : 'Unable to retrieve analytics data from local database.');
+      setMetrics(null);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     void loadData();
-  }, []);
+  }, [loadData]);
 
-  // Compute metrics from retrieved local sessions
-  const metrics = useMemo(() => {
-    const totalSessions = sessions.length;
+  // Derived outcome distributions and average Focus Indicator score
+  const derivedStats = useMemo(() => {
+    const totalSessions = metrics?.sessionCount ?? sessions.length;
     const completedSessions = sessions.filter((s) => s.status === 'completed').length;
     const cancelledSessions = sessions.filter((s) => s.status === 'cancelled').length;
     const interruptedSessions = sessions.filter((s) => s.status === 'interrupted').length;
 
-    const totalElapsedSeconds = sessions.reduce((acc, s) => acc + (s.elapsedSeconds || 0), 0);
-    const totalPlannedSeconds = sessions.reduce((acc, s) => acc + (s.plannedDurationSeconds || 0), 0);
-    const totalPausedSeconds = sessions.reduce((acc, s) => acc + (s.pausedDurationSeconds || 0), 0);
-
-    const averageElapsedMinutes = totalSessions > 0
-      ? Math.round(totalElapsedSeconds / totalSessions / 60)
-      : 0;
-
     const completionRate = totalSessions > 0
       ? Math.round((completedSessions / totalSessions) * 100)
       : 0;
+
+    // Compute average Focus Indicator score across calculated sessions
+    const calculatedScores: number[] = [];
+    if (metrics?.focusIndicators) {
+      for (const indicator of metrics.focusIndicators) {
+        if (
+          indicator.status === 'calculated' &&
+          typeof indicator.score === 'number' &&
+          Number.isFinite(indicator.score)
+        ) {
+          calculatedScores.push(indicator.score);
+        }
+      }
+    }
+
+    const averageFocusScore = calculatedScores.length > 0
+      ? Math.round(calculatedScores.reduce((sum, score) => sum + score, 0) / calculatedScores.length)
+      : null;
 
     return {
       totalSessions,
       completedSessions,
       cancelledSessions,
       interruptedSessions,
-      totalElapsedSeconds,
-      totalPlannedSeconds,
-      totalPausedSeconds,
-      averageElapsedMinutes,
       completionRate,
-      hasSufficientData: totalSessions > 0,
+      averageFocusScore,
+      hasData: totalSessions > 0,
     };
-  }, [sessions]);
+  }, [metrics, sessions]);
 
   const isLiveSession = activeTimerStatus === 'running' || activeTimerStatus === 'paused';
+  const recentSessions = sessions.slice(0, 5);
 
   return (
     <div className="analytics-page">
+      {/* Header */}
       <header className="analytics-page-header">
         <div>
           <h1>Analytics & Focus Trends</h1>
-          <p>Local aggregation of focus intervals, completion ratios, and attention metrics.</p>
+          <p>Local aggregation of focus intervals, attention metrics, and session outcomes.</p>
         </div>
         <div className="analytics-header-actions">
           <button
@@ -133,42 +178,42 @@ const Analytics: React.FC = () => {
         </section>
       )}
 
-      {/* Loading state */}
+      {/* 1. Loading State */}
       {loading && (
         <div className="card analytics-status-card" role="status" aria-live="polite">
           <div className="analytics-spinner" aria-hidden="true" />
-          <p>Calculating focus metrics from local records...</p>
+          <p>Aggregating focus metrics from local records...</p>
         </div>
       )}
 
-      {/* Error state */}
+      {/* 2. Error State */}
       {!loading && error && (
         <div className="card analytics-status-card error" role="alert">
-          <AlertCircle size={24} color="var(--error-color)" aria-hidden="true" />
+          <AlertCircle size={28} color="var(--error-color)" aria-hidden="true" />
           <div>
-            <h3>Unable to calculate metrics</h3>
-            <p>{error}</p>
+            <h2 style={{ fontSize: '1.15rem', marginBottom: '4px' }}>Unable to retrieve analytics</h2>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>{error}</p>
           </div>
-          <button type="button" className="btn btn-secondary" onClick={() => void loadData()}>
+          <button type="button" className="btn btn-secondary" onClick={() => void loadData(true)}>
             Retry
           </button>
         </div>
       )}
 
-      {/* Insufficient Data State */}
-      {!loading && !error && !metrics.hasSufficientData && (
+      {/* 3. Empty / Insufficient Data State */}
+      {!loading && !error && (!metrics || !derivedStats.hasData) && (
         <div className="card analytics-insufficient-card" role="region" aria-label="Insufficient data">
           <div className="insufficient-icon" aria-hidden="true">
             <BarChart3 size={44} />
           </div>
-          <h2>Insufficient focus data available</h2>
+          <h2>No focus sessions recorded yet</h2>
           <p>
             There are no saved focus sessions in your local database yet. Focus analytics, completion
             rates, and session trend charts require at least one completed or logged session.
           </p>
           <div className="insufficient-metrics-preview">
             <div className="preview-stat">
-              <span className="val">0h 0m</span>
+              <span className="val">0m</span>
               <span className="lbl">Total Focus</span>
             </div>
             <div className="preview-stat">
@@ -191,64 +236,135 @@ const Analytics: React.FC = () => {
         </div>
       )}
 
-      {/* Populated Analytics Dashboard */}
-      {!loading && !error && metrics.hasSufficientData && (
+      {/* 4. Populated Analytics Dashboard */}
+      {!loading && !error && metrics && derivedStats.hasData && (
         <div className="analytics-dashboard">
-          {/* Metric KPI Cards */}
-          <div className="grid grid-cols-4 analytics-kpi-grid">
+          {/* Summary Metric KPI Cards (7 required metrics) */}
+          <section className="analytics-kpi-grid" aria-label="Key performance indicators">
+            {/* 1. Total Focus Time */}
             <div className="card analytics-kpi-card">
               <div className="kpi-icon">
                 <Clock size={20} color="var(--accent-color)" aria-hidden="true" />
               </div>
-              <div className="card-value">{formatHoursMinutes(metrics.totalElapsedSeconds)}</div>
-              <div className="card-label">Total focused time</div>
+              <div className="card-value">{formatHoursMinutes(metrics.totalFocusTimeSeconds)}</div>
+              <div className="card-label">Total Focus Time</div>
+              <span className="card-subtext">Confirmed elapsed time</span>
             </div>
 
+            {/* 2. Total Number of Sessions */}
             <div className="card analytics-kpi-card">
               <div className="kpi-icon">
                 <Target size={20} color="var(--accent-color)" aria-hidden="true" />
               </div>
-              <div className="card-value">{metrics.totalSessions}</div>
-              <div className="card-label">Total recorded sessions</div>
+              <div className="card-value">{metrics.sessionCount}</div>
+              <div className="card-label">Total Sessions</div>
+              <span className="card-subtext">Recorded in local DB</span>
             </div>
 
-            <div className="card analytics-kpi-card">
-              <div className="kpi-icon">
-                <CheckCircle2 size={20} color="var(--success-color)" aria-hidden="true" />
-              </div>
-              <div className="card-value">{metrics.completionRate}%</div>
-              <div className="card-label">Completion rate</div>
-            </div>
-
+            {/* 3. Average Session Duration */}
             <div className="card analytics-kpi-card">
               <div className="kpi-icon">
                 <TrendingUp size={20} color="var(--accent-color)" aria-hidden="true" />
               </div>
-              <div className="card-value">{metrics.averageElapsedMinutes}m</div>
-              <div className="card-label">Average duration</div>
+              <div className="card-value">
+                {formatHoursMinutes(metrics.averageSessionLengthSeconds)}
+              </div>
+              <div className="card-label">Average Duration</div>
+              <span className="card-subtext">Per recorded session</span>
             </div>
-          </div>
 
-          {/* Session Outcome Breakdown */}
-          <section className="card analytics-section-card" aria-labelledby="status-breakdown-title">
-            <h2 id="status-breakdown-title">Session Outcome Distribution</h2>
+            {/* 4. Total Away Time */}
+            <div className="card analytics-kpi-card">
+              <div className="kpi-icon">
+                <UserMinus size={20} color="#f59e0b" aria-hidden="true" />
+              </div>
+              <div className="card-value">
+                {metrics.totalAwayTimeSeconds > 0
+                  ? formatHoursMinutes(metrics.totalAwayTimeSeconds)
+                  : '0m'}
+              </div>
+              <div className="card-label">Total Away Time</div>
+              <span className="card-subtext">Confirmed away periods</span>
+            </div>
+
+            {/* 5. Focus Indicator Score */}
+            <div className="card analytics-kpi-card">
+              <div className="kpi-icon">
+                <Zap size={20} color="var(--accent-color)" aria-hidden="true" />
+              </div>
+              <div className="card-value">
+                {derivedStats.averageFocusScore !== null ? `${derivedStats.averageFocusScore}%` : '—'}
+              </div>
+              <div className="card-label">Focus Indicator</div>
+              <span className="card-subtext">
+                {derivedStats.averageFocusScore !== null ? 'Average score across sessions' : 'Insufficient data'}
+              </span>
+            </div>
+
+            {/* 6. Screen-Facing Duration */}
+            <div className="card analytics-kpi-card">
+              <div className="kpi-icon">
+                <Eye size={20} color="var(--text-secondary)" aria-hidden="true" />
+              </div>
+              <div className={`card-value ${metrics.screenFacingDurationSeconds === null ? 'unavailable' : ''}`}>
+                {metrics.screenFacingDurationSeconds !== null
+                  ? formatHoursMinutes(metrics.screenFacingDurationSeconds)
+                  : '—'}
+              </div>
+              <div className="card-label">Screen-Facing Time</div>
+              <span className="analytics-kpi-badge">
+                {metrics.screenFacingDurationSeconds !== null ? 'Observed' : 'Not tracked in local DB'}
+              </span>
+            </div>
+
+            {/* 7. Posture Events */}
+            <div className="card analytics-kpi-card">
+              <div className="kpi-icon">
+                <Activity size={20} color="var(--text-secondary)" aria-hidden="true" />
+              </div>
+              <div className={`card-value ${metrics.postureEventCount === null ? 'unavailable' : ''}`}>
+                {metrics.postureEventCount !== null ? metrics.postureEventCount : '—'}
+              </div>
+              <div className="card-label">Posture Events</div>
+              <span className="analytics-kpi-badge">
+                {metrics.postureEventCount !== null ? 'Observed' : 'Not tracked in local DB'}
+              </span>
+            </div>
+
+            {/* 8. Completion Rate */}
+            <div className="card analytics-kpi-card">
+              <div className="kpi-icon">
+                <CheckCircle2 size={20} color="var(--success-color)" aria-hidden="true" />
+              </div>
+              <div className="card-value">{derivedStats.completionRate}%</div>
+              <div className="card-label">Completion Rate</div>
+              <span className="card-subtext">
+                {derivedStats.completedSessions} of {derivedStats.totalSessions} completed
+              </span>
+            </div>
+          </section>
+
+          {/* Dedicated Visualization Section Prepared for Day 28 */}
+          <section className="card analytics-section-card" aria-labelledby="visualization-section-title">
+            <h2 id="visualization-section-title">Focus Trends & Distribution</h2>
             <p className="analytics-section-subtitle">
-              Breakdown of how focus sessions concluded across all local history.
+              Breakdown of session completion ratios and timeline trends across your local focus history.
             </p>
 
+            {/* Session Outcome Distribution */}
             <div className="outcome-bars">
               <div className="outcome-row">
                 <div className="outcome-info">
                   <span className="outcome-name">Completed</span>
                   <span className="outcome-numbers">
-                    {metrics.completedSessions} ({metrics.totalSessions > 0 ? Math.round((metrics.completedSessions / metrics.totalSessions) * 100) : 0}%)
+                    {derivedStats.completedSessions} ({derivedStats.totalSessions > 0 ? Math.round((derivedStats.completedSessions / derivedStats.totalSessions) * 100) : 0}%)
                   </span>
                 </div>
-                <div className="progress-track" role="progressbar" aria-valuenow={metrics.completedSessions} aria-valuemin={0} aria-valuemax={metrics.totalSessions}>
+                <div className="progress-track" role="progressbar" aria-valuenow={derivedStats.completedSessions} aria-valuemin={0} aria-valuemax={derivedStats.totalSessions}>
                   <div
                     className="progress-fill completed"
                     style={{
-                      width: `${metrics.totalSessions > 0 ? (metrics.completedSessions / metrics.totalSessions) * 100 : 0}%`,
+                      width: `${derivedStats.totalSessions > 0 ? (derivedStats.completedSessions / derivedStats.totalSessions) * 100 : 0}%`,
                     }}
                   />
                 </div>
@@ -258,14 +374,14 @@ const Analytics: React.FC = () => {
                 <div className="outcome-info">
                   <span className="outcome-name">Cancelled Early</span>
                   <span className="outcome-numbers">
-                    {metrics.cancelledSessions} ({metrics.totalSessions > 0 ? Math.round((metrics.cancelledSessions / metrics.totalSessions) * 100) : 0}%)
+                    {derivedStats.cancelledSessions} ({derivedStats.totalSessions > 0 ? Math.round((derivedStats.cancelledSessions / derivedStats.totalSessions) * 100) : 0}%)
                   </span>
                 </div>
-                <div className="progress-track" role="progressbar" aria-valuenow={metrics.cancelledSessions} aria-valuemin={0} aria-valuemax={metrics.totalSessions}>
+                <div className="progress-track" role="progressbar" aria-valuenow={derivedStats.cancelledSessions} aria-valuemin={0} aria-valuemax={derivedStats.totalSessions}>
                   <div
                     className="progress-fill cancelled"
                     style={{
-                      width: `${metrics.totalSessions > 0 ? (metrics.cancelledSessions / metrics.totalSessions) * 100 : 0}%`,
+                      width: `${derivedStats.totalSessions > 0 ? (derivedStats.cancelledSessions / derivedStats.totalSessions) * 100 : 0}%`,
                     }}
                   />
                 </div>
@@ -275,28 +391,94 @@ const Analytics: React.FC = () => {
                 <div className="outcome-info">
                   <span className="outcome-name">Interrupted / Shutdown</span>
                   <span className="outcome-numbers">
-                    {metrics.interruptedSessions} ({metrics.totalSessions > 0 ? Math.round((metrics.interruptedSessions / metrics.totalSessions) * 100) : 0}%)
+                    {derivedStats.interruptedSessions} ({derivedStats.totalSessions > 0 ? Math.round((derivedStats.interruptedSessions / derivedStats.totalSessions) * 100) : 0}%)
                   </span>
                 </div>
-                <div className="progress-track" role="progressbar" aria-valuenow={metrics.interruptedSessions} aria-valuemin={0} aria-valuemax={metrics.totalSessions}>
+                <div className="progress-track" role="progressbar" aria-valuenow={derivedStats.interruptedSessions} aria-valuemin={0} aria-valuemax={derivedStats.totalSessions}>
                   <div
                     className="progress-fill interrupted"
                     style={{
-                      width: `${metrics.totalSessions > 0 ? (metrics.interruptedSessions / metrics.totalSessions) * 100 : 0}%`,
+                      width: `${derivedStats.totalSessions > 0 ? (derivedStats.interruptedSessions / derivedStats.totalSessions) * 100 : 0}%`,
                     }}
                   />
                 </div>
               </div>
             </div>
+
+            {/* Day 28 Prepared Chart Placeholder Container */}
+            <div className="analytics-charts-placeholder" aria-label="Daily and weekly charts container (Day 28)">
+              <BarChart3 size={34} color="var(--accent-color)" aria-hidden="true" />
+              <h3>Daily & Weekly Focus Visualization</h3>
+              <p>
+                Interactive daily attention timeline charts and weekly productivity distributions are planned
+                for implementation on Day 28.
+              </p>
+              <div className="analytics-charts-pills">
+                <span className="analytics-charts-pill">Daily Timeline Chart (Day 28)</span>
+                <span className="analytics-charts-pill">Weekly Daypart Distribution (Day 28)</span>
+                <span className="analytics-charts-pill">Hourly Focus Heatmap (Day 28)</span>
+              </div>
+            </div>
           </section>
 
-          {/* Privacy Note */}
-          <div className="analytics-privacy-footer">
-            <ShieldCheck size={16} aria-hidden="true" />
+          {/* Recent Sessions Summary Section */}
+          {recentSessions.length > 0 && (
+            <section className="card analytics-section-card" aria-labelledby="recent-sessions-title">
+              <div className="analytics-recent-header">
+                <div>
+                  <h2 id="recent-sessions-title">Recent Focus Sessions</h2>
+                  <p className="analytics-section-subtitle" style={{ marginBottom: 0 }}>
+                    Overview of your latest sessions saved locally.
+                  </p>
+                </div>
+                <Link to="/history" className="btn btn-secondary" style={{ fontSize: '0.85rem', padding: '6px 12px' }}>
+                  View All History
+                  <ArrowRight size={14} style={{ marginLeft: '4px' }} aria-hidden="true" />
+                </Link>
+              </div>
+
+              <div className="analytics-recent-list">
+                {recentSessions.map((session) => (
+                  <div key={session.id} className="analytics-recent-item">
+                    <div className="analytics-recent-info">
+                      <Clock size={16} color="var(--accent-color)" aria-hidden="true" />
+                      <div>
+                        <strong>{formatSessionDate(session.startedAt)}</strong>
+                        <span style={{ color: 'var(--text-secondary)', marginLeft: '8px', fontSize: '0.8rem' }}>
+                          {formatSessionTime(session.startedAt)}
+                        </span>
+                      </div>
+                      <span className={`session-status-badge ${getStatusBadgeClass(session.status)}`}>
+                        {getStatusLabel(session.status)}
+                      </span>
+                    </div>
+
+                    <div className="analytics-recent-metrics">
+                      <div>
+                        Focus: <strong>{formatSessionDuration(session.elapsedSeconds)}</strong>
+                      </div>
+                      <div>
+                        Planned: <strong>{formatSessionDuration(session.plannedDurationSeconds)}</strong>
+                      </div>
+                      {session.awayDurationSeconds !== undefined && (
+                        <div>
+                          Away: <strong>{formatSessionAwayDuration(session.awayDurationSeconds)}</strong>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Privacy Disclaimer Footer */}
+          <footer className="analytics-privacy-footer">
+            <ShieldCheck size={18} aria-hidden="true" />
             <span>
-              All analytics and metrics are computed on-device using local SQLite storage. No session data is transmitted or shared.
+              All analytics and metrics are computed on-device using local SQLite storage. No session or biometric data is ever transmitted or uploaded.
             </span>
-          </div>
+          </footer>
         </div>
       )}
     </div>
