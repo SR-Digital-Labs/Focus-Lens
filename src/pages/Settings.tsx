@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Bell, Clock3, Moon, Save, ShieldCheck, Timer, Waves } from 'lucide-react';
+import { Bell, Clock3, Database, Moon, Save, Timer, Waves } from 'lucide-react';
 import {
   DEFAULT_AWAY_THRESHOLD_MINUTES,
   getAwayDetectionStorage,
@@ -17,6 +17,8 @@ import {
 } from '../services/wellnessNotification.service';
 import { privacySettingsRepository } from '../services/db.service';
 import type { PrivacySettings } from '../types';
+import { PrivacyControlsSection } from '../components/PrivacyControlsSection';
+import NotificationBreakSection from '../components/NotificationBreakSection';
 
 const Settings: React.FC = () => {
   const service = getWellnessReminderService();
@@ -155,6 +157,9 @@ const Settings: React.FC = () => {
         </label>
       </section>
 
+      {/* Notification & Break Settings — Day 30 (Shavisha) */}
+      <NotificationBreakSection onMessage={setMessage} />
+
       <section className="card settings-group">
         <div className="settings-group-heading">
           <Moon size={20} aria-hidden="true" />
@@ -251,12 +256,15 @@ const Settings: React.FC = () => {
         </div>
       </section>
 
+      {/* Privacy controls: camera status, session tracking, privacy info */}
+      <PrivacyControlsSection onMessage={setMessage} />
+
       <section className="card settings-group">
         <div className="settings-group-heading">
-          <ShieldCheck size={20} aria-hidden="true" />
+          <Database size={20} aria-hidden="true" />
           <div>
-            <h2>Privacy and data controls</h2>
-            <p>On-device privacy guarantees and local storage policies.</p>
+            <h2>Data storage controls</h2>
+            <p>Local storage policies and session-video preferences.</p>
           </div>
         </div>
         <label className="settings-toggle">
