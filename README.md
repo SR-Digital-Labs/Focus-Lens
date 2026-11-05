@@ -112,6 +112,22 @@ FocusLens is designed to provide calm, focused insights without making users fee
 
 ---
 
+## Screenshots
+
+### TODO: Add Application Screenshots
+
+The following screenshots should be added to the repository:
+
+1. **Dashboard** - Main dashboard with daypart allocation, quick actions, and recent sessions
+2. **Focus Session** - Active focus session with timer, camera status, and activity indicators
+3. **Session History** - Session history table with filters and pagination
+4. **Analytics Dashboard** - Productivity analytics with charts and metrics
+5. **Settings** - Privacy controls, notification settings, and data management options
+
+**Recommended screenshot location:** `public/screenshots/` or `docs/screenshots/`
+
+---
+
 ## Technology Stack
 
 ### Frontend
@@ -399,18 +415,21 @@ The installer is generated in `src-tauri/target/release/bundle/nsis/` (MSI insta
 
 ## Download and Installation
 
-### Windows Installer
+### Windows Desktop Application
 
-The Windows installer can be published through GitHub Releases. To build the installer:
+**[Download FocusLens for Windows](https://drive.google.com/drive/folders/1UYlg84ZfB_H_ZUX8ioyEhDUMkfHmZg52?usp=sharing)**
 
-```powershell
-npm run tauri:build
-```
+FocusLens is distributed as a Windows MSI installer package.
 
-The generated installer artifact is located at:
-```
-src-tauri/target/release/bundle/nsis/FocusLens_0.1.0_x64_en-US.msi
-```
+**Installation Instructions:**
+
+1. Open the Google Drive folder: [FocusLens for Windows](https://drive.google.com/drive/folders/1UYlg84ZfB_H_ZUX8ioyEhDUMkfHmZg52?usp=sharing)
+2. Download the folder
+3. Extract the downloaded ZIP file
+4. Open the extracted folder
+5. Run the `.msi` installer
+6. Follow the Windows installation wizard
+7. Launch FocusLens from the Start menu or desktop shortcut
 
 **Note:** The desktop runtime requires:
 - A compatible Python runtime on the user's machine
@@ -471,7 +490,7 @@ The following foundation documents are available in the [`Docs/`](./Docs/) folde
 - [Product Requirements Document (PRD)](./Docs/PRD.md) - Project overview, problem statement, and proposed solution
 - [Technical Requirements Document (TRD)](./Docs/TRD.md) - Technical objectives, architecture, and data flow
 - [Application Flow Document (AFD)](./Docs/AFD.md) - User flow and application navigation structure
-- [UI/UX Design Brief]((./Docs/UIUXDesignBrief.md) - Visual identity, layout, and component design
+- [UI/UX Design Brief](./Docs/UIUXDesignBrief.md) - Visual identity, layout, and component design
 - [Backend / Local Database Schema (BDS)](./Docs/BDS.md) - Database structure and privacy guarantees
 - [Implementation Plan]((./Docs/ImplementationPlan.md) - 35-day development roadmap and task breakdown
 
