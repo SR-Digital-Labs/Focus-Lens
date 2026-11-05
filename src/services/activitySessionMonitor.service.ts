@@ -161,9 +161,7 @@ export class ActivitySessionMonitor {
     this.timerStatus = state.status;
 
     if (state.status === 'running') {
-      if (previousStatus !== 'paused' || !this.state.sessionId) {
-        this.beginSession(state.sessionId);
-      } else {
+      if (previousStatus === 'paused' && this.state.sessionId === state.sessionId) {
         this.sessionStartedAt = Date.now();
         this.latestSignalAt = 0;
         this.updateState({
@@ -171,6 +169,8 @@ export class ActivitySessionMonitor {
           signal: null,
           error: null,
         });
+      } else if (previousStatus !== 'running' || this.state.sessionId !== state.sessionId) {
+        this.beginSession(state.sessionId);
       }
       return;
     }

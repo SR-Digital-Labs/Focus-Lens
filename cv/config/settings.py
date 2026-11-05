@@ -49,12 +49,12 @@ INTERNAL_COLOR_SPACE: str = "BGR"
 # The model is downloaded once and stored in cv/models/.
 # All inference runs locally — no network access after download.
 import os as _os
-MEDIAPIPE_MODEL_PATH: str = _os.path.join(
+MEDIAPIPE_MODEL_PATH: str = _os.path.normpath(_os.path.join(
     _os.path.dirname(__file__),  # cv/config/
     "..",                         # cv/
     "models",
     "face_landmarker.task",
-)
+))
 
 # Minimum confidence for a detection to be accepted.
 # Range: 0.0 – 1.0.  Lower = more sensitive but more false positives.
@@ -68,12 +68,12 @@ FACE_PRESENCE_CONFIDENCE: float = 0.5
 MAX_FACES: int = 1
 
 # MediaPipe Pose Landmarker (local, on-device inference).
-POSE_LANDMARKER_MODEL_PATH: str = _os.path.join(
+POSE_LANDMARKER_MODEL_PATH: str = _os.path.normpath(_os.path.join(
     _os.path.dirname(__file__),
     "..",
     "models",
     "pose_landmarker_lite.task",
-)
+))
 POSE_DETECTION_CONFIDENCE: float = 0.5
 POSE_PRESENCE_CONFIDENCE: float = 0.5
 MAX_POSES: int = 1

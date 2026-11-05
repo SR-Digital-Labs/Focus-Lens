@@ -126,6 +126,30 @@ describe('ActivitySessionMonitor', () => {
     unsubscribeState();
   });
 
+  it('keeps the last detection visible across running timer ticks', async () => {
+    const timer = new FakeTimer();
+    const events = new FakeEventSource();
+    const monitor = new ActivitySessionMonitor(events, timer, () => 'session-a');
+    let current = initialMonitorState();
+    monitor.subscribe((state) => {
+      current = state;
+    });
+    const stop = monitor.start();
+    await Promise.resolve();
+
+    timer.setStatus('running', 'session-a');
+    const occurredAt = new Date(Date.now() + 10).toISOString();
+    events.emitActivity(activityEvent('first-detection', occurredAt, {}, 'session-a'));
+    assert.equal(current.status, 'active');
+
+    timer.setStatus('running', 'session-a');
+    assert.equal(current.status, 'active');
+    assert.equal(current.signal?.personPresence, 'present');
+    assert.equal(current.signal?.occurredAt, occurredAt);
+
+    stop();
+  });
+
   it('uses the focus timer session ID for monitor and persisted-session correlation', async () => {
     const timer = new FakeTimer();
     const events = new FakeEventSource();

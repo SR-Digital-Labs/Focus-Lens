@@ -26,3 +26,18 @@ src-tauri/gen
 *.njsproj
 *.sln
 *.sw?
+
+#Added by HarryVishmitha
+# Python bytecode and cache
+__pycache__/
+*.py[cod]
+
+# Python test caches
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Python virtual environments
+.venv/
+venv/
+env/
