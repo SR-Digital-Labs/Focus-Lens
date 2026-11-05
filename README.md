@@ -112,22 +112,6 @@ FocusLens is designed to provide calm, focused insights without making users fee
 
 ---
 
-## Screenshots
-
-### TODO: Add Application Screenshots
-
-The following screenshots should be added to the repository:
-
-1. **Dashboard** - Main dashboard with daypart allocation, quick actions, and recent sessions
-2. **Focus Session** - Active focus session with timer, camera status, and activity indicators
-3. **Session History** - Session history table with filters and pagination
-4. **Analytics Dashboard** - Productivity analytics with charts and metrics
-5. **Settings** - Privacy controls, notification settings, and data management options
-
-**Recommended screenshot location:** `public/screenshots/` or `docs/screenshots/`
-
----
-
 ## Technology Stack
 
 ### Frontend
