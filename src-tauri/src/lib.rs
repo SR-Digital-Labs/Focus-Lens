@@ -42,14 +42,14 @@ struct ServiceError {
 
 impl ServiceError {
     fn static_message(code: &'static str, message: &'static str) -> Self {
-        ServiceError {
+        Self {
             code,
             message: message.to_string(),
         }
     }
 
     fn dynamic_message(code: &'static str, message: String) -> Self {
-        ServiceError { code, message }
+        Self { code, message }
     }
 }
 
@@ -71,34 +71,28 @@ struct CameraStatus {
 #[serde(deny_unknown_fields)]
 struct EmptyPayload {}
 
-fn validate_request<T>(
-    request: &ServiceRequest<T>,
-) -> Option<ServiceResponse<()>> {
-    if request.protocol_version != SERVICE_PROTOCOL_VERSION {
-        return Some(ServiceResponse {
-            protocol_version: SERVICE_PROTOCOL_VERSION,
-            request_id: request.request_id.clone(),
-            ok: false,
-            data: None,
-            error: Some(ServiceError::static_message(
-                "INVALID_REQUEST",
-                "Unsupported service protocol version.",
-            )),
-        });
-    }
-    if request.request_id.trim().is_empty() {
-        return Some(ServiceResponse {
-            protocol_version: SERVICE_PROTOCOL_VERSION,
-            request_id: request.request_id.clone(),
-            ok: false,
-            data: None,
-            error: Some(ServiceError::static_message(
-                "INVALID_REQUEST",
-                "Request ID must not be empty.",
-            )),
-        });
-    }
-    None
+fn validate_request<T>(request: &ServiceRequest<T>) -> Option<ServiceResponse<()>> {
+    let error = if request.protocol_version != SERVICE_PROTOCOL_VERSION {
+        Some(ServiceError::static_message(
+            "INVALID_REQUEST",
+            "Unsupported service protocol version.",
+        ))
+    } else if request.request_id.trim().is_empty() {
+        Some(ServiceError::static_message(
+            "INVALID_REQUEST",
+            "Request ID must not be empty.",
+        ))
+    } else {
+        None
+    }?;
+
+    Some(ServiceResponse {
+        protocol_version: SERVICE_PROTOCOL_VERSION,
+        request_id: request.request_id.clone(),
+        ok: false,
+        data: None,
+        error: Some(error),
+    })
 }
 
 #[tauri::command]
@@ -106,19 +100,19 @@ fn get_camera_status(
     request: ServiceRequest<EmptyPayload>,
     bridge: State<'_, Mutex<CvPipelineBridge>>,
 ) -> ServiceResponse<CameraStatus> {
-    if let Some(err_response) = validate_request(&request) {
+    if let Some(response) = validate_request(&request) {
         return ServiceResponse {
-            protocol_version: SERVICE_PROTOCOL_VERSION,
-            request_id: err_response.request_id,
+            protocol_version: response.protocol_version,
+            request_id: response.request_id,
             ok: false,
             data: None,
-            error: err_response.error,
+            error: response.error,
         };
     }
 
     let is_active = match bridge.lock() {
         Ok(bridge) => match bridge.camera_is_active() {
-            Ok(is_active) => is_active,
+            Ok(active) => active,
             Err(error) => {
                 return ServiceResponse {
                     protocol_version: SERVICE_PROTOCOL_VERSION,
@@ -194,13 +188,13 @@ fn process_camera_frame(
     request: ServiceRequest<CameraFramePayload>,
     bridge: State<'_, Mutex<CvPipelineBridge>>,
 ) -> ServiceResponse<CameraFrameStatus> {
-    if let Some(err_response) = validate_request(&request) {
+    if let Some(response) = validate_request(&request) {
         return ServiceResponse {
-            protocol_version: SERVICE_PROTOCOL_VERSION,
-            request_id: err_response.request_id,
+            protocol_version: response.protocol_version,
+            request_id: response.request_id,
             ok: false,
             data: None,
-            error: err_response.error,
+            error: response.error,
         };
     }
 
@@ -238,43 +232,31 @@ fn start_cv_pipeline(
     request: ServiceRequest<EmptyPayload>,
     bridge: State<'_, Mutex<CvPipelineBridge>>,
 ) -> ServiceResponse<CvPipelineStatus> {
-    if let Some(err_response) = validate_request(&request) {
+    if let Some(response) = validate_request(&request) {
         return ServiceResponse {
-            protocol_version: SERVICE_PROTOCOL_VERSION,
-            request_id: err_response.request_id,
+            protocol_version: response.protocol_version,
+            request_id: response.request_id,
             ok: false,
             data: None,
-            error: err_response.error,
+            error: response.error,
         };
     }
 
     let guard = match bridge.lock() {
-        Ok(g) => g,
-        Err(e) => {
-            return ServiceResponse {
-                protocol_version: SERVICE_PROTOCOL_VERSION,
-                request_id: request.request_id,
-                ok: false,
-                data: None,
-                error: Some(ServiceError::dynamic_message("INTERNAL", e.to_string())),
-            };
-        }
-    };
-
-    let already_running = match guard.is_running() {
-        Ok(is_running) => is_running,
+        Ok(guard) => guard,
         Err(error) => {
             return ServiceResponse {
                 protocol_version: SERVICE_PROTOCOL_VERSION,
                 request_id: request.request_id,
                 ok: false,
                 data: None,
-                error: Some(ServiceError::dynamic_message("INTERNAL", error)),
+                error: Some(ServiceError::dynamic_message("INTERNAL", error.to_string())),
             };
         }
     };
-    if already_running {
-        return ServiceResponse {
+
+    match guard.is_running() {
+        Ok(true) => ServiceResponse {
             protocol_version: SERVICE_PROTOCOL_VERSION,
             request_id: request.request_id,
             ok: true,
@@ -283,39 +265,32 @@ fn start_cv_pipeline(
                 message: "CV pipeline is already running.".to_string(),
             }),
             error: None,
-        };
-    }
-
-    let cv_dir = match resolve_cv_dir(&app) {
-        Ok(path) => path,
-        Err(message) => {
-            return ServiceResponse {
+        },
+        Ok(false) => match resolve_cv_dir(&app).and_then(|cv_dir| guard.start(app, cv_dir)) {
+            Ok(()) => ServiceResponse {
+                protocol_version: SERVICE_PROTOCOL_VERSION,
+                request_id: request.request_id,
+                ok: true,
+                data: Some(CvPipelineStatus {
+                    running: true,
+                    message: "CV pipeline started.".to_string(),
+                }),
+                error: None,
+            },
+            Err(message) => ServiceResponse {
                 protocol_version: SERVICE_PROTOCOL_VERSION,
                 request_id: request.request_id,
                 ok: false,
                 data: None,
                 error: Some(ServiceError::dynamic_message("DEVICE_UNAVAILABLE", message)),
-            };
-        }
-    };
-
-    match guard.start(app.clone(), cv_dir) {
-        Ok(()) => ServiceResponse {
-            protocol_version: SERVICE_PROTOCOL_VERSION,
-            request_id: request.request_id,
-            ok: true,
-            data: Some(CvPipelineStatus {
-                running: true,
-                message: "CV pipeline started.".to_string(),
-            }),
-            error: None,
+            },
         },
-        Err(e) => ServiceResponse {
+        Err(message) => ServiceResponse {
             protocol_version: SERVICE_PROTOCOL_VERSION,
             request_id: request.request_id,
             ok: false,
             data: None,
-            error: Some(ServiceError::dynamic_message("DEVICE_UNAVAILABLE", e)),
+            error: Some(ServiceError::dynamic_message("INTERNAL", message)),
         },
     }
 }
@@ -325,30 +300,22 @@ fn stop_cv_pipeline(
     request: ServiceRequest<EmptyPayload>,
     bridge: State<'_, Mutex<CvPipelineBridge>>,
 ) -> ServiceResponse<CvPipelineStatus> {
-    if let Some(err_response) = validate_request(&request) {
+    if let Some(response) = validate_request(&request) {
         return ServiceResponse {
-            protocol_version: SERVICE_PROTOCOL_VERSION,
-            request_id: err_response.request_id,
+            protocol_version: response.protocol_version,
+            request_id: response.request_id,
             ok: false,
             data: None,
-            error: err_response.error,
+            error: response.error,
         };
     }
 
-    let guard = match bridge.lock() {
-        Ok(g) => g,
-        Err(e) => {
-            return ServiceResponse {
-                protocol_version: SERVICE_PROTOCOL_VERSION,
-                request_id: request.request_id,
-                ok: false,
-                data: None,
-                error: Some(ServiceError::dynamic_message("INTERNAL", e.to_string())),
-            };
-        }
-    };
+    let result = bridge
+        .lock()
+        .map_err(|error| error.to_string())
+        .and_then(|bridge| bridge.stop());
 
-    match guard.stop() {
+    match result {
         Ok(()) => ServiceResponse {
             protocol_version: SERVICE_PROTOCOL_VERSION,
             request_id: request.request_id,
@@ -359,19 +326,34 @@ fn stop_cv_pipeline(
             }),
             error: None,
         },
-        Err(e) => ServiceResponse {
+        Err(message) => ServiceResponse {
             protocol_version: SERVICE_PROTOCOL_VERSION,
             request_id: request.request_id,
             ok: false,
             data: None,
-            error: Some(ServiceError::dynamic_message("INTERNAL", e)),
+            error: Some(ServiceError::dynamic_message("INTERNAL", message)),
         },
     }
 }
 
-// ---------------------------------------------------------------------------
-// Helper: locate the cv/ directory
-// ---------------------------------------------------------------------------
+fn stop_pipeline_on_exit(app_handle: &tauri::AppHandle) {
+    let Some(bridge) = app_handle.try_state::<Mutex<CvPipelineBridge>>() else {
+        return;
+    };
+
+    match bridge.lock() {
+        Ok(bridge) => {
+            if let Err(error) = bridge.stop() {
+                eprintln!("[FocusLens] Failed to stop CV pipeline during shutdown: {error}");
+            }
+        }
+        Err(error) => {
+            eprintln!(
+                "[FocusLens] CV pipeline state was poisoned during shutdown: {error}"
+            );
+        }
+    };
+}
 
 fn resolve_cv_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     if let Ok(resource_dir) = app.path().resource_dir() {
@@ -402,35 +384,13 @@ fn resolve_cv_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 fn find_cv_directory(start: &Path) -> Option<PathBuf> {
     start.ancestors().find_map(|directory| {
         let candidate = directory.join("cv");
-        if is_cv_directory(&candidate) {
-            Some(candidate)
-        } else {
-            None
-        }
+        is_cv_directory(&candidate).then_some(candidate)
     })
 }
 
 fn is_cv_directory(path: &Path) -> bool {
     path.join("main.py").is_file()
 }
-
-fn stop_pipeline_on_exit(app_handle: &tauri::AppHandle) {
-    let Some(bridge) = app_handle.try_state::<Mutex<CvPipelineBridge>>() else {
-        return;
-    };
-    match bridge.lock() {
-        Ok(bridge) => {
-            if let Err(error) = bridge.stop() {
-                eprintln!("[FocusLens] Failed to stop CV pipeline during shutdown: {error}");
-            }
-        }
-        Err(error) => eprintln!("[FocusLens] CV pipeline state was poisoned during shutdown: {error}"),
-    }
-}
-
-// ---------------------------------------------------------------------------
-// App setup
-// ---------------------------------------------------------------------------
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -466,37 +426,25 @@ pub fn run() {
     });
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 #[cfg(test)]
 mod tests {
-    use super::{find_cv_directory, is_cv_directory, EmptyPayload, ServiceRequest};
-    use crate::config::SERVICE_PROTOCOL_VERSION;
+    use super::{find_cv_directory, is_cv_directory};
     use crate::cv_pipeline::CvPipelineBridge;
-    use std::sync::Mutex;
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    fn make_bridge() -> Mutex<CvPipelineBridge> {
-        Mutex::new(CvPipelineBridge::new())
-    }
-
     #[test]
     fn cv_pipeline_bridge_is_not_running_initially() {
-        let bridge = make_bridge();
-        let guard = bridge.lock().unwrap();
-        assert!(!guard.is_running().unwrap());
-        assert!(!guard.camera_is_active().unwrap());
+        let bridge = CvPipelineBridge::new();
+        assert!(!bridge.is_running().unwrap());
+        assert!(!bridge.camera_is_active().unwrap());
     }
 
     #[test]
     fn cv_pipeline_stop_when_not_running_is_idempotent() {
-        let bridge = make_bridge();
-        let guard = bridge.lock().unwrap();
-        assert!(guard.stop().is_ok());
-        assert!(!guard.is_running().unwrap());
+        let bridge = CvPipelineBridge::new();
+        assert!(bridge.stop().is_ok());
+        assert!(!bridge.is_running().unwrap());
     }
 
     #[test]
@@ -512,7 +460,7 @@ mod tests {
     }
 
     #[test]
-    fn cv_resource_lookup_requires_the_entry_point_and_finds_parent_resource_directory() {
+    fn cv_resource_lookup_requires_entry_point_and_finds_parent_directory() {
         let unique = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -523,18 +471,9 @@ mod tests {
 
         assert!(!is_cv_directory(&cv_dir));
         assert!(find_cv_directory(&root).is_none());
-
         fs::write(cv_dir.join("main.py"), "pass").unwrap();
         assert!(is_cv_directory(&cv_dir));
         assert_eq!(find_cv_directory(&root), Some(cv_dir.clone()));
-
         fs::remove_dir_all(root).unwrap();
     }
-
-    // Note: get_camera_status requires a Tauri AppHandle via State<>, which
-    // cannot easily be constructed in a unit test.  The existing command-level
-    // tests verify the ServiceResponse shape; the bridge is tested above.
-    //
-    // Full integration (Python subprocess + Tauri events) must be verified
-    // by running `npm run tauri:dev` with a webcam present.
 }
