@@ -17,6 +17,7 @@ import {
 } from '../src/services/db.service.ts';
 import type { AwayDetectionEvent } from '../src/services/awayDetection.service.ts';
 import { SessionService } from '../src/services/session.service.ts';
+import { FocusTimerService } from '../src/services/focusTimer.service.ts';
 import {
   calculateFocusIndicatorFromEvents,
   FOCUS_SCORING_VERSION,
@@ -636,6 +637,34 @@ describe('Local SQLite database and repositories', () => {
       await reopenedDatabase.close();
     } finally {
       await database.close().catch(() => undefined);
+      testDatabase.cleanup();
+    }
+  });
+
+  it('persists the UUID from the UI-facing timer path through pause, resume, completion, and retrieval', async () => {
+    const { testDatabase, database, sessions } = await setup();
+    const timer = new FocusTimerService();
+    try {
+      assert.equal(timer.start(), true);
+      const active = timer.getActiveSession();
+      assert.ok(active);
+      await sessions.create(active);
+      assert.equal((await sessions.getById(active.id))?.status, 'running');
+
+      assert.equal(timer.pause(), true);
+      const pausedAt = new Date().toISOString();
+      await sessions.update(active.id, { status: 'paused', pausedAt });
+      assert.equal((await sessions.getById(active.id))?.status, 'paused');
+
+      assert.equal(timer.resume(), true);
+      await sessions.update(active.id, { status: 'running', pausedAt: null });
+      await sessions.complete(active.id, new Date().toISOString(), timer.getState().elapsedSeconds);
+      const completed = await sessions.getById(active.id);
+      assert.equal(completed?.id, timer.getState().sessionId);
+      assert.equal(completed?.status, 'completed');
+    } finally {
+      timer.end();
+      await database.close();
       testDatabase.cleanup();
     }
   });
