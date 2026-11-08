@@ -1,5 +1,9 @@
 import type { ActivityEvent, Session } from '../types';
-import { calculateFocusIndicator, type FocusIndicatorResult } from './focusIndicator.service.ts';
+import {
+  calculateFocusIndicator,
+  calculateFocusIndicatorFromEvents,
+  type FocusIndicatorResult,
+} from './focusIndicator.service.ts';
 
 export interface DashboardMetrics {
   totalFocusTimeSeconds: number;
@@ -27,16 +31,15 @@ export function calculateDashboardMetrics(
   events: ActivityEvent[],
 ): DashboardMetrics {
   const validSessions = sessions.filter(isUsableSession);
-  const awayEvents = events.filter(isUsableAwayEvent);
-  return buildDashboardMetrics(validSessions, awayEvents);
+  return buildDashboardMetrics(validSessions, events);
 }
 
 function buildDashboardMetrics(
   validSessions: Session[],
-  awayEvents: ActivityEvent[],
+  events: ActivityEvent[],
 ): DashboardMetrics {
+  const awayEvents = events.filter(isUsableAwayEvent);
   const totalFocusTimeSeconds = validSessions.reduce((sum, session) => sum + session.elapsedSeconds, 0);
-  const awayEventsBySession = groupAwayEventsBySession(awayEvents);
   const totalAwayTimeSeconds = sumUniqueAwayIntervals(awayEvents);
 
   return {
@@ -44,14 +47,31 @@ function buildDashboardMetrics(
     sessionCount: validSessions.length,
     averageSessionLengthSeconds: validSessions.length ? totalFocusTimeSeconds / validSessions.length : 0,
     totalAwayTimeSeconds,
-    // Current SQLite storage accepts only away event records, not these signals.
+    // Detailed values are represented by the per-session indicator breakdown.
     screenFacingDurationSeconds: null,
     postureEventCount: null,
-    focusIndicators: validSessions.map((session) => calculateFocusIndicator({
-      sessionId: session.id,
-      activeDurationSeconds: session.elapsedSeconds,
-      awayDurationSeconds: sumUniqueAwayIntervals(awayEventsBySession.get(session.id) ?? []),
-    })),
+    focusIndicators: validSessions.map((session) => {
+      const sessionEvents = events.filter((event) => event.sessionId === session.id);
+      const hasReproducibleStream = sessionEvents.some((event) =>
+        event.type.startsWith('SESSION_')
+        || event.category === 'person'
+        || event.category === 'screen_facing'
+        || event.category === 'posture',
+      );
+      if (!hasReproducibleStream) {
+        // Compatibility for pre-v2 records, whose only persisted evidence was
+        // away intervals. New sessions always persist lifecycle/observation data.
+        return calculateFocusIndicator({
+          sessionId: session.id,
+          activeDurationSeconds: session.elapsedSeconds,
+          awayDurationSeconds: sumUniqueAwayIntervals(sessionEvents.filter(isUsableAwayEvent)),
+        });
+      }
+      return calculateFocusIndicatorFromEvents(sessionEvents, session.id, {
+          activeDurationSeconds: session.elapsedSeconds,
+          now: session.endedAt ? Date.parse(session.endedAt) : undefined,
+      });
+    }),
   };
 }
 
@@ -63,7 +83,7 @@ export async function getDashboardAnalytics(): Promise<DashboardAnalyticsData> {
   const validSessions = sessions.filter(isUsableSession);
   const awayEvents = events.filter(isUsableAwayEvent);
   const awayEventsBySession = groupAwayEventsBySession(awayEvents);
-  const metrics = buildDashboardMetrics(validSessions, awayEvents);
+  const metrics = buildDashboardMetrics(validSessions, events);
   const indicatorBySession = new Map(metrics.focusIndicators.map((indicator) => [indicator.sessionId, indicator]));
 
   return {

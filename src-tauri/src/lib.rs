@@ -400,12 +400,20 @@ pub fn run() {
             tauri_plugin_sql::Builder::default()
                 .add_migrations(
                     "sqlite:focuslens.db",
-                    vec![tauri_plugin_sql::Migration {
-                        version: 1,
-                        description: "initial_focuslens_schema",
-                        sql: include_str!("../migrations/0001_initial.sql"),
-                        kind: tauri_plugin_sql::MigrationKind::Up,
-                    }],
+                    vec![
+                        tauri_plugin_sql::Migration {
+                            version: 1,
+                            description: "initial_focuslens_schema",
+                            sql: include_str!("../migrations/0001_initial.sql"),
+                            kind: tauri_plugin_sql::MigrationKind::Up,
+                        },
+                        tauri_plugin_sql::Migration {
+                            version: 2,
+                            description: "reproducible_focus_scoring",
+                            sql: include_str!("../migrations/0002_reproducible_scoring.sql"),
+                            kind: tauri_plugin_sql::MigrationKind::Up,
+                        },
+                    ],
                 )
                 .build(),
         )

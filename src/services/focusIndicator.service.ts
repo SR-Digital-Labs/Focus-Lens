@@ -69,6 +69,9 @@ export const DEFAULT_FOCUS_INDICATOR_WEIGHTS: Readonly<FocusIndicatorWeights> = 
   postureWeight: 0.25,
 });
 
+/** Increment only when the documented scoring inputs or formula change. */
+export const FOCUS_SCORING_VERSION = 'focus-indicator-v1';
+
 /**
  * Raw session metrics used as input to the Focus Indicator calculation.
  */

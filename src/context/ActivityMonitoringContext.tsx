@@ -52,6 +52,7 @@ export function ActivityMonitoringProvider({ children }: { children: ReactNode }
     let closeApproved = false;
     let closeInProgress = false;
     let unlistenClose: (() => void) | null = null;
+    let recoveryTimer: ReturnType<typeof setTimeout> | null = null;
     const desktopWindow = isTauri() ? getCurrentWindow() : null;
 
     const startMonitoring = async () => {
@@ -104,6 +105,7 @@ export function ActivityMonitoringProvider({ children }: { children: ReactNode }
             away: awayDetector,
             sessions: sessionService,
             events: activityEventRepository,
+            tracker: activityEventTracker,
             onError: (error) => {
               console.error('Unable to persist focus-session activity:', error);
             },
@@ -119,7 +121,24 @@ export function ActivityMonitoringProvider({ children }: { children: ReactNode }
         console.error('Unable to start local away tracking:', error);
       }
 
-      // Manage CV pipeline lifecycle alongside focus sessions
+      // Manage CV pipeline lifecycle alongside focus sessions. Unexpected
+      // failures receive bounded, de-duplicated recovery attempts.
+      const unsubscribeCvState = cvService.subscribeState((state) => {
+        if (
+          mounted
+          && focusTimerService.getState().status === 'running'
+          && !state.running
+          && state.error
+          && recoveryTimer === null
+        ) {
+          recoveryTimer = setTimeout(() => {
+            recoveryTimer = null;
+            void cvService.recover().catch((error: unknown) => {
+              console.warn('[ActivityMonitoring] Controlled CV recovery failed:', error);
+            });
+          }, 1_000);
+        }
+      });
       const unsubscribeTimerCv = focusTimerService.subscribe((timerState) => {
         if (timerState.status === 'running') {
           if (cvService.isAvailable() && !cvService.isRunning()) {
@@ -132,6 +151,11 @@ export function ActivityMonitoringProvider({ children }: { children: ReactNode }
           || timerState.status === 'idle'
           || timerState.status === 'completed'
         ) {
+          cvService.resetRecoveryBudget();
+          if (recoveryTimer !== null) {
+            clearTimeout(recoveryTimer);
+            recoveryTimer = null;
+          }
           if (cvService.isRunning()) {
             void cvService.stop().catch((err) => {
               console.warn('[ActivityMonitoring] CV pipeline failed to stop:', err);
@@ -147,6 +171,8 @@ export function ActivityMonitoringProvider({ children }: { children: ReactNode }
         }
         servicesStopped = true;
         unsubscribeTimerCv();
+        unsubscribeCvState();
+        if (recoveryTimer !== null) clearTimeout(recoveryTimer);
         previousStop?.();
         stopAway();
         unsubscribeAway();
