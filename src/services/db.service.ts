@@ -609,6 +609,32 @@ function normalizeSession(session: Session): Session {
   ) {
     throw new Error('Session elapsed and paused durations must be finite and non-negative.');
   }
+  if (
+    normalized.focusScore !== undefined
+    && (!Number.isFinite(normalized.focusScore)
+      || normalized.focusScore < 0
+      || normalized.focusScore > 100)
+  ) {
+    throw new Error('Persisted focus score must be between 0 and 100.');
+  }
+  if (
+    normalized.observationCoverage !== undefined
+    && normalized.observationCoverage !== null
+    && (!Number.isFinite(normalized.observationCoverage)
+      || normalized.observationCoverage < 0
+      || normalized.observationCoverage > 1)
+  ) {
+    throw new Error('Observation coverage must be between 0 and 1.');
+  }
+  if (
+    normalized.scoringVersion !== undefined
+    && normalized.scoringVersion !== null
+    && (typeof normalized.scoringVersion !== 'string'
+      || !normalized.scoringVersion.trim()
+      || normalized.scoringVersion.length > 64)
+  ) {
+    throw new Error('Scoring version must be a non-empty string of at most 64 characters.');
+  }
   if ((normalized.status === 'paused') !== (normalized.pausedAt !== null)) {
     throw new Error('Paused sessions must have a pause timestamp; other states must not.');
   }

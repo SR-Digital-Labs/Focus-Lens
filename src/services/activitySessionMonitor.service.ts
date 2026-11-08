@@ -46,6 +46,7 @@ export class ActivitySessionMonitor {
   private timerStatus: FocusTimerState['status'] | null = null;
   private sessionStartedAt = 0;
   private latestSignalAt = 0;
+  private latestCvGeneration = 0;
   private unsubscribeTimer: Unsubscribe | null = null;
   private unsubscribeActivity: Unsubscribe | null = null;
   private unsubscribeCv: Unsubscribe | null = null;
@@ -233,6 +234,9 @@ export class ActivitySessionMonitor {
     ) {
       return;
     }
+    if (!this.acceptCvGeneration(event.eventId)) {
+      return;
+    }
 
     this.rememberEventId(event.eventId);
     this.latestSignalAt = occurredAt;
@@ -261,6 +265,9 @@ export class ActivitySessionMonitor {
     }
     const occurredAt = Date.parse(event.occurredAt);
     if (!Number.isFinite(occurredAt) || occurredAt < this.sessionStartedAt) {
+      return;
+    }
+    if (!this.acceptCvGeneration(event.eventId)) {
       return;
     }
 
@@ -292,6 +299,16 @@ export class ActivitySessionMonitor {
         this.seenEventIds.delete(oldest);
       }
     }
+  }
+
+  private acceptCvGeneration(eventId: string): boolean {
+    const match = /^cv-(\d+)-(?:\d+|eof)$/.exec(eventId);
+    if (!match) return true;
+    const generation = Number(match[1]);
+    if (!Number.isSafeInteger(generation) || generation <= 0) return false;
+    if (generation < this.latestCvGeneration) return false;
+    if (generation > this.latestCvGeneration) this.latestCvGeneration = generation;
+    return true;
   }
 
   private updateState(

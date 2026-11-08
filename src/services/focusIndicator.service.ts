@@ -527,6 +527,16 @@ export function calculateFocusIndicatorFromEvents(
       'The session contains no persisted activity observations.',
     );
   }
+  const hasPersonObservations = sessionEvents.some((event) =>
+    event.category === 'person' || event.type.startsWith('PERSON_'),
+  );
+  if (!hasPersonObservations) {
+    return createEmptyResult(
+      sessionId,
+      'insufficient_data',
+      'Person-presence observations are unavailable for this session.',
+    );
+  }
   if (!hasLifecycleEvents && options?.activeDurationSeconds !== undefined) {
     endMs = Math.max(endMs, startMs + options.activeDurationSeconds * 1_000);
   }

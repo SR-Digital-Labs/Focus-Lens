@@ -11,6 +11,7 @@ import {
   type AwayDetectionSnapshot,
 } from '../services/awayDetection.service';
 import { cvService } from '../services/cv.service';
+import { cameraCaptureService } from '../services/cameraCapture.service';
 import { activityEventTracker } from '../services/activityEventTracker.service';
 import { focusLensService } from '../services/focusLensService';
 import { focusTimerService } from '../services/focusTimer.service';
@@ -108,6 +109,11 @@ export function ActivityMonitoringProvider({ children }: { children: ReactNode }
             tracker: activityEventTracker,
             onError: (error) => {
               console.error('Unable to persist focus-session activity:', error);
+              setActivityState((current) => ({
+                ...current,
+                status: 'error',
+                error: `Session persistence failed: ${error.message}`,
+              }));
             },
           });
           const stopPersistence = persistence.start();
@@ -124,6 +130,14 @@ export function ActivityMonitoringProvider({ children }: { children: ReactNode }
       // Manage CV pipeline lifecycle alongside focus sessions. Unexpected
       // failures receive bounded, de-duplicated recovery attempts.
       const unsubscribeCvState = cvService.subscribeState((state) => {
+        if (mounted && !state.running && state.error) {
+          setActivityState((current) => ({
+            ...current,
+            status: 'error',
+            signal: null,
+            error: state.error,
+          }));
+        }
         if (
           mounted
           && focusTimerService.getState().status === 'running'
@@ -139,10 +153,13 @@ export function ActivityMonitoringProvider({ children }: { children: ReactNode }
           }, 1_000);
         }
       });
+      let previousTimerCvStatus: ReturnType<typeof focusTimerService.getState>['status'] | null = null;
       const unsubscribeTimerCv = focusTimerService.subscribe((timerState) => {
+        const enteredRunning = timerState.status === 'running' && previousTimerCvStatus !== 'running';
+        previousTimerCvStatus = timerState.status;
         if (timerState.status === 'running') {
-          if (cvService.isAvailable() && !cvService.isRunning()) {
-            void cvService.start().catch((err) => {
+          if (enteredRunning && cvService.isAvailable() && !cvService.isRunning()) {
+            void cvService.recover().catch((err) => {
               console.warn('[ActivityMonitoring] CV pipeline failed to start:', err);
             });
           }
@@ -163,6 +180,22 @@ export function ActivityMonitoringProvider({ children }: { children: ReactNode }
           }
         }
       });
+      let previousCameraState = cameraCaptureService.getStatus().state;
+      const unsubscribeCameraRecovery = cameraCaptureService.subscribeStatus((cameraStatus) => {
+        const restored = cameraStatus.state === 'active' && previousCameraState !== 'active';
+        previousCameraState = cameraStatus.state;
+        if (
+          restored
+          && focusTimerService.getState().status === 'running'
+          && cvService.isAvailable()
+          && !cvService.isRunning()
+        ) {
+          cvService.resetRecoveryBudget();
+          void cvService.recover().catch((error: unknown) => {
+            console.warn('[ActivityMonitoring] CV recovery after camera restoration failed:', error);
+          });
+        }
+      });
 
       const previousStop = stopServices;
       stopServices = () => {
@@ -171,6 +204,7 @@ export function ActivityMonitoringProvider({ children }: { children: ReactNode }
         }
         servicesStopped = true;
         unsubscribeTimerCv();
+        unsubscribeCameraRecovery();
         unsubscribeCvState();
         if (recoveryTimer !== null) clearTimeout(recoveryTimer);
         previousStop?.();

@@ -379,6 +379,27 @@ describe('Day 24 — CV / Desktop Integration', () => {
         height: 480,
       }), /broken pipe/);
       assert.equal(service.isRunning(), false);
+
+      await service.recover();
+      statusListener!({
+        eventId: 'cv-3-eof',
+        occurredAt: new Date().toISOString(),
+        payload: { requestId: 'cv-status-3-eof', status: 'failed' },
+      });
+      await service.recover();
+      statusListener!({
+        eventId: 'cv-4-eof',
+        occurredAt: new Date().toISOString(),
+        payload: { requestId: 'cv-status-4-eof', status: 'failed' },
+      });
+      await assert.rejects(service.recover(), /recovery limit reached/i);
+      assert.equal(starts, 4, 'the recovery budget must prevent an unbounded restart loop');
+
+      // ActivityMonitoringContext calls this only on an actual inactive -> active
+      // camera transition, allowing restoration to begin a fresh bounded window.
+      service.resetRecoveryBudget();
+      await service.recover();
+      assert.equal(starts, 5);
     } finally {
       Object.defineProperty(globalThis, 'document', { configurable: true, value: originalDocument });
       service.teardown();

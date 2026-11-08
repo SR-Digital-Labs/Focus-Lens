@@ -433,6 +433,41 @@ describe('ActivitySessionMonitor', () => {
     }
     stop();
   });
+
+  it('ignores delayed activity and failure events from an older CV generation', async () => {
+    const timer = new FakeTimer();
+    const events = new FakeEventSource();
+    const monitor = new ActivitySessionMonitor(events, timer);
+    let current = initialMonitorState();
+    monitor.subscribe((state) => { current = state; });
+    const stop = monitor.start();
+    await Promise.resolve();
+    const sessionId = '123e4567-e89b-42d3-a456-426614174001';
+    timer.setStatus('running', sessionId);
+    const newerAt = new Date(Date.now() + 100).toISOString();
+    events.emitActivity(activityEvent('cv-8-1', newerAt, { personPresence: 'present' }, sessionId));
+
+    events.emitActivity(activityEvent(
+      'cv-7-99',
+      new Date(Date.now() + 200).toISOString(),
+      { personPresence: 'away' },
+      sessionId,
+    ));
+    events.emitCv({
+      eventId: 'cv-7-eof',
+      occurredAt: new Date(Date.now() + 300).toISOString(),
+      sessionId,
+      payload: {
+        requestId: 'old-generation-eof',
+        status: 'failed',
+        error: { code: 'DEVICE_UNAVAILABLE', message: 'delayed old failure' },
+      },
+    });
+    assert.equal(current.status, 'active');
+    assert.equal(current.signal?.personPresence, 'present');
+    assert.equal(current.error, null);
+    stop();
+  });
 });
 
 function initialMonitorState() {

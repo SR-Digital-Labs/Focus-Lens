@@ -668,4 +668,20 @@ describe('Local SQLite database and repositories', () => {
       testDatabase.cleanup();
     }
   });
+
+  it('rejects invalid persisted scoring metadata', async () => {
+    const { testDatabase, database, sessions } = await setup();
+    try {
+      await sessions.create(runningSession(SESSION_1));
+      await assert.rejects(sessions.update(SESSION_1, { focusScore: 101 }), /between 0 and 100/);
+      await assert.rejects(
+        sessions.update(SESSION_1, { observationCoverage: -0.01 }),
+        /between 0 and 1/,
+      );
+      await assert.rejects(sessions.update(SESSION_1, { scoringVersion: '' }), /Scoring version/);
+    } finally {
+      await database.close();
+      testDatabase.cleanup();
+    }
+  });
 });

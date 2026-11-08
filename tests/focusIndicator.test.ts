@@ -367,6 +367,24 @@ describe('FocusIndicatorCalculation — Day 19 Verification Scenarios', () => {
     assert.equal(result.confidence, 0);
   });
 
+  it('does not score facing or posture data when person presence is unavailable', () => {
+    const start = 1_770_000_000_000;
+    const result = calculateFocusIndicatorFromEvents([{
+      id: 'facing-without-presence',
+      sessionId: 'session-no-presence',
+      timestamp: start,
+      type: 'SCREEN_FACING',
+      category: 'screen_facing',
+      stateValue: 'SCREEN_FACING',
+    }], 'session-no-presence', {
+      activeDurationSeconds: 60,
+      now: start + 60_000,
+    });
+    assert.equal(result.status, 'insufficient_data');
+    assert.equal(result.score, null);
+    assert.match(result.summaryMessage, /presence observations are unavailable/i);
+  });
+
   it('keeps short and empty event sessions from producing misleading scores', () => {
     const empty = calculateFocusIndicatorFromEvents([], 'session-empty', {
       activeDurationSeconds: 1_500,
