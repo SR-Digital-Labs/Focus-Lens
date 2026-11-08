@@ -405,6 +405,34 @@ describe('ActivitySessionMonitor', () => {
     assert.equal(events.activityListeners.size, 0);
     assert.equal(events.cvListeners.size, 0);
   });
+
+  it('accepts generation-aware events across repeated pause/resume cycles', async () => {
+    const timer = new FakeTimer();
+    const events = new FakeEventSource();
+    const monitor = new ActivitySessionMonitor(events, timer);
+    let current = initialMonitorState();
+    monitor.subscribe((state) => { current = state; });
+    const stop = monitor.start();
+    await Promise.resolve();
+    const sessionId = '123e4567-e89b-42d3-a456-426614174001';
+    timer.setStatus('running', sessionId);
+
+    for (let generation = 1; generation <= 4; generation += 1) {
+      if (generation > 1) {
+        timer.setStatus('paused', sessionId);
+        timer.setStatus('running', sessionId);
+      }
+      const occurredAt = new Date(Date.now() + generation * 10).toISOString();
+      events.emitActivity(activityEvent(
+        `cv-${generation}-1`,
+        occurredAt,
+        { personPresence: generation % 2 === 0 ? 'away' : 'present' },
+        sessionId,
+      ));
+      assert.equal(current.signal?.occurredAt, occurredAt);
+    }
+    stop();
+  });
 });
 
 function initialMonitorState() {
