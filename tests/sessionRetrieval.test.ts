@@ -10,10 +10,10 @@ import type { SqlConnection, SqlDatabaseLoader } from '../src/services/db.servic
 import { LocalDatabaseService, SessionRepository } from '../src/services/db.service.ts';
 import { SessionRetrievalService } from '../src/services/sessionRetrieval.service.ts';
 
-const migrationSql = readFileSync(
-  new URL('../src-tauri/migrations/0001_initial.sql', import.meta.url),
-  'utf8',
-);
+const migrationSql = [
+  '0001_initial.sql',
+  '0002_reproducible_scoring.sql',
+].map((file) => readFileSync(new URL(`../src-tauri/migrations/${file}`, import.meta.url), 'utf8')).join('\n');
 
 const SESSION_UUID_1 = '123e4567-e89b-42d3-a456-426614174001';
 const SESSION_UUID_2 = '123e4567-e89b-42d3-a456-426614174002';

@@ -307,4 +307,38 @@ describe('AwayDetectionService', () => {
     assert.equal(timer.listenerCount, 0);
     assert.equal(activity.listenerCount, 0);
   });
+
+  for (const minutes of [1, 5, 6, 10, 15]) {
+    it(`confirms ${minutes} minutes of stable absence when healthy heartbeats continue`, () => {
+      const { clock, timer, activity, service } = createHarness(
+        Date.parse('2026-10-15T00:00:00.000Z'),
+        minutes,
+        30_000,
+      );
+      activity.emit(state('session-a', 'away', clock.now()));
+      for (let elapsed = 20_000; elapsed <= minutes * 60_000; elapsed += 20_000) {
+        clock.advance(20_000);
+        activity.emit(state('session-a', 'away', clock.now()));
+        timer.setStatus('running');
+      }
+      assert.equal(service.getSnapshot().events.length, 1);
+      timer.setStatus('running');
+      assert.equal(service.getSnapshot().events.length, 1, 'threshold event must not duplicate');
+      service.stop();
+    });
+  }
+
+  it('does not confirm absence after observation heartbeats stall', () => {
+    const { clock, timer, activity, service } = createHarness(
+      Date.parse('2026-10-15T00:00:00.000Z'),
+      1,
+      30_000,
+    );
+    activity.emit(state('session-a', 'away', clock.now()));
+    clock.advance(60_000);
+    timer.setStatus('running');
+    assert.equal(service.getSnapshot().events.length, 0);
+    assert.equal(service.getSnapshot().awayStartedAt, null);
+    service.stop();
+  });
 });

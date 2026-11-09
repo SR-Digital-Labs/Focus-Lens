@@ -17,11 +17,16 @@ import {
 } from '../src/services/db.service.ts';
 import type { AwayDetectionEvent } from '../src/services/awayDetection.service.ts';
 import { SessionService } from '../src/services/session.service.ts';
+import { FocusTimerService } from '../src/services/focusTimer.service.ts';
+import {
+  calculateFocusIndicatorFromEvents,
+  FOCUS_SCORING_VERSION,
+} from '../src/services/focusIndicator.service.ts';
 
-const migrationSql = readFileSync(
-  new URL('../src-tauri/migrations/0001_initial.sql', import.meta.url),
-  'utf8',
-);
+const migrationSql = [
+  '0001_initial.sql',
+  '0002_reproducible_scoring.sql',
+].map((file) => readFileSync(new URL(`../src-tauri/migrations/${file}`, import.meta.url), 'utf8')).join('\n');
 const SESSION_1 = '123e4567-e89b-42d3-a456-426614174001';
 const SESSION_2 = '123e4567-e89b-42d3-a456-426614174002';
 const SESSION_PAUSED = '123e4567-e89b-42d3-a456-426614174003';
@@ -579,6 +584,101 @@ describe('Local SQLite database and repositories', () => {
       assert.equal((await sessionService.list({ status: 'running' }))[0]?.elapsedSeconds, 30);
       await sessionService.cancel(SESSION_1, '2026-10-15T00:01:00.000Z', 60);
       assert.equal((await sessionService.getById(SESSION_1))?.status, 'cancelled');
+    } finally {
+      await database.close();
+      testDatabase.cleanup();
+    }
+  });
+
+  it('reproduces a persisted focus score after a database restart', async () => {
+    const { testDatabase, database, sessions, events } = await setup();
+    const start = Date.parse('2026-10-15T00:00:00.000Z');
+    try {
+      await sessions.create(runningSession(SESSION_1));
+      const observations = [
+        { id: 'evt-start', type: 'SESSION_STARTED', category: 'session', stateValue: 'STARTED', timestamp: start },
+        { id: 'evt-present', type: 'PERSON_PRESENT', category: 'person', stateValue: 'PRESENT', timestamp: start + 1_000 },
+        { id: 'evt-facing', type: 'SCREEN_FACING', category: 'screen_facing', stateValue: 'SCREEN_FACING', timestamp: start + 1_000 },
+        { id: 'evt-posture', type: 'POSTURE_GOOD', category: 'posture', stateValue: 'GOOD_POSTURE', timestamp: start + 1_000 },
+        { id: 'evt-complete', type: 'SESSION_COMPLETED', category: 'session', stateValue: 'COMPLETED', timestamp: start + 60_000 },
+      ] as const;
+      for (const event of observations) {
+        await events.record({ ...event, sessionId: SESSION_1 });
+      }
+      const live = calculateFocusIndicatorFromEvents(
+        await events.listBySession(SESSION_1),
+        SESSION_1,
+        { activeDurationSeconds: 60, now: start + 60_000 },
+      );
+      assert.equal(live.status, 'calculated');
+      await sessions.update(SESSION_1, {
+        status: 'completed',
+        endedAt: new Date(start + 60_000).toISOString(),
+        elapsedSeconds: 60,
+        focusScore: live.score!,
+        observationCoverage: live.confidence,
+        scoringVersion: FOCUS_SCORING_VERSION,
+      });
+
+      await database.close();
+      const reopenedDatabase = new LocalDatabaseService(testDatabase.loader);
+      const reopenedSessions = new SessionRepository(reopenedDatabase);
+      const reopenedEvents = new ActivityEventRepository(reopenedDatabase);
+      const persisted = await reopenedSessions.getById(SESSION_1);
+      const historical = calculateFocusIndicatorFromEvents(
+        await reopenedEvents.listBySession(SESSION_1),
+        SESSION_1,
+        { activeDurationSeconds: persisted?.elapsedSeconds, now: start + 60_000 },
+      );
+      assert.equal(historical.score, live.score);
+      assert.equal(persisted?.focusScore, live.score);
+      assert.equal(persisted?.observationCoverage, live.confidence);
+      assert.equal(persisted?.scoringVersion, FOCUS_SCORING_VERSION);
+      await reopenedDatabase.close();
+    } finally {
+      await database.close().catch(() => undefined);
+      testDatabase.cleanup();
+    }
+  });
+
+  it('persists the UUID from the UI-facing timer path through pause, resume, completion, and retrieval', async () => {
+    const { testDatabase, database, sessions } = await setup();
+    const timer = new FocusTimerService();
+    try {
+      assert.equal(timer.start(), true);
+      const active = timer.getActiveSession();
+      assert.ok(active);
+      await sessions.create(active);
+      assert.equal((await sessions.getById(active.id))?.status, 'running');
+
+      assert.equal(timer.pause(), true);
+      const pausedAt = new Date().toISOString();
+      await sessions.update(active.id, { status: 'paused', pausedAt });
+      assert.equal((await sessions.getById(active.id))?.status, 'paused');
+
+      assert.equal(timer.resume(), true);
+      await sessions.update(active.id, { status: 'running', pausedAt: null });
+      await sessions.complete(active.id, new Date().toISOString(), timer.getState().elapsedSeconds);
+      const completed = await sessions.getById(active.id);
+      assert.equal(completed?.id, timer.getState().sessionId);
+      assert.equal(completed?.status, 'completed');
+    } finally {
+      timer.end();
+      await database.close();
+      testDatabase.cleanup();
+    }
+  });
+
+  it('rejects invalid persisted scoring metadata', async () => {
+    const { testDatabase, database, sessions } = await setup();
+    try {
+      await sessions.create(runningSession(SESSION_1));
+      await assert.rejects(sessions.update(SESSION_1, { focusScore: 101 }), /between 0 and 100/);
+      await assert.rejects(
+        sessions.update(SESSION_1, { observationCoverage: -0.01 }),
+        /between 0 and 1/,
+      );
+      await assert.rejects(sessions.update(SESSION_1, { scoringVersion: '' }), /Scoring version/);
     } finally {
       await database.close();
       testDatabase.cleanup();

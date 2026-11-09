@@ -2,12 +2,13 @@ import initSqlJs from 'sql.js';
 import type { Database, SqlValue } from 'sql.js';
 import sqlWasmUrl from 'sql.js/dist/sql-wasm.wasm?url';
 import initialSchema from '../../src-tauri/migrations/0001_initial.sql?raw';
+import reproducibleScoringMigration from '../../src-tauri/migrations/0002_reproducible_scoring.sql?raw';
 import type { SqlConnection, SqlQueryResult } from './db.service';
 
 const STORAGE_DATABASE_NAME = 'focuslens-browser-storage';
 const STORAGE_DATABASE_VERSION = 1;
 const STORAGE_STORE_NAME = 'sqlite-databases';
-const DATABASE_VERSION = 1;
+const DATABASE_VERSION = 2;
 
 let sqlRuntime: ReturnType<typeof initSqlJs> | null = null;
 
@@ -30,7 +31,8 @@ export async function loadBrowserDatabase(path: string): Promise<SqlConnection> 
   if (version < DATABASE_VERSION) {
     try {
       database.run('BEGIN IMMEDIATE');
-      database.exec(initialSchema);
+      if (version < 1) database.exec(initialSchema);
+      if (version < 2) database.exec(reproducibleScoringMigration);
       database.run(`PRAGMA user_version = ${DATABASE_VERSION}`);
       database.run('COMMIT');
     } catch (error) {

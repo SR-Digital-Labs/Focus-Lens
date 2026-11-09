@@ -126,6 +126,30 @@ describe('ActivitySessionMonitor', () => {
     unsubscribeState();
   });
 
+  it('keeps the last detection visible across running timer ticks', async () => {
+    const timer = new FakeTimer();
+    const events = new FakeEventSource();
+    const monitor = new ActivitySessionMonitor(events, timer, () => 'session-a');
+    let current = initialMonitorState();
+    monitor.subscribe((state) => {
+      current = state;
+    });
+    const stop = monitor.start();
+    await Promise.resolve();
+
+    timer.setStatus('running', 'session-a');
+    const occurredAt = new Date(Date.now() + 10).toISOString();
+    events.emitActivity(activityEvent('first-detection', occurredAt, {}, 'session-a'));
+    assert.equal(current.status, 'active');
+
+    timer.setStatus('running', 'session-a');
+    assert.equal(current.status, 'active');
+    assert.equal(current.signal?.personPresence, 'present');
+    assert.equal(current.signal?.occurredAt, occurredAt);
+
+    stop();
+  });
+
   it('uses the focus timer session ID for monitor and persisted-session correlation', async () => {
     const timer = new FakeTimer();
     const events = new FakeEventSource();
@@ -380,6 +404,69 @@ describe('ActivitySessionMonitor', () => {
     assert.equal(timer.listenerCount, 0);
     assert.equal(events.activityListeners.size, 0);
     assert.equal(events.cvListeners.size, 0);
+  });
+
+  it('accepts generation-aware events across repeated pause/resume cycles', async () => {
+    const timer = new FakeTimer();
+    const events = new FakeEventSource();
+    const monitor = new ActivitySessionMonitor(events, timer);
+    let current = initialMonitorState();
+    monitor.subscribe((state) => { current = state; });
+    const stop = monitor.start();
+    await Promise.resolve();
+    const sessionId = '123e4567-e89b-42d3-a456-426614174001';
+    timer.setStatus('running', sessionId);
+
+    for (let generation = 1; generation <= 4; generation += 1) {
+      if (generation > 1) {
+        timer.setStatus('paused', sessionId);
+        timer.setStatus('running', sessionId);
+      }
+      const occurredAt = new Date(Date.now() + generation * 10).toISOString();
+      events.emitActivity(activityEvent(
+        `cv-${generation}-1`,
+        occurredAt,
+        { personPresence: generation % 2 === 0 ? 'away' : 'present' },
+        sessionId,
+      ));
+      assert.equal(current.signal?.occurredAt, occurredAt);
+    }
+    stop();
+  });
+
+  it('ignores delayed activity and failure events from an older CV generation', async () => {
+    const timer = new FakeTimer();
+    const events = new FakeEventSource();
+    const monitor = new ActivitySessionMonitor(events, timer);
+    let current = initialMonitorState();
+    monitor.subscribe((state) => { current = state; });
+    const stop = monitor.start();
+    await Promise.resolve();
+    const sessionId = '123e4567-e89b-42d3-a456-426614174001';
+    timer.setStatus('running', sessionId);
+    const newerAt = new Date(Date.now() + 100).toISOString();
+    events.emitActivity(activityEvent('cv-8-1', newerAt, { personPresence: 'present' }, sessionId));
+
+    events.emitActivity(activityEvent(
+      'cv-7-99',
+      new Date(Date.now() + 200).toISOString(),
+      { personPresence: 'away' },
+      sessionId,
+    ));
+    events.emitCv({
+      eventId: 'cv-7-eof',
+      occurredAt: new Date(Date.now() + 300).toISOString(),
+      sessionId,
+      payload: {
+        requestId: 'old-generation-eof',
+        status: 'failed',
+        error: { code: 'DEVICE_UNAVAILABLE', message: 'delayed old failure' },
+      },
+    });
+    assert.equal(current.status, 'active');
+    assert.equal(current.signal?.personPresence, 'present');
+    assert.equal(current.error, null);
+    stop();
   });
 });
 

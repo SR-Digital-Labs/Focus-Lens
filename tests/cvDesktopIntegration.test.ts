@@ -316,4 +316,93 @@ describe('Day 24 — CV / Desktop Integration', () => {
 
     service.teardown();
   });
+
+  it('synchronizes failed status, broken-pipe state, and de-duplicated recovery', async () => {
+    let starts = 0;
+    let statusListener: ((event: ServiceEvent<CvResponse>) => void) | null = null;
+    const native = {
+      camera: { getStatus: async () => ({ state: 'inactive' as const }) },
+      activity: {
+        subscribe: async () => () => {},
+        connectToEventTracker: async () => () => {},
+      },
+      session: { subscribe: async () => () => {} },
+      cv: {
+        subscribe: async (listener: (event: ServiceEvent<CvResponse>) => void) => {
+          statusListener = listener;
+          return () => {};
+        },
+        start: async () => {
+          starts += 1;
+          return { running: true, message: 'started' };
+        },
+        stop: async () => ({ running: false, message: 'stopped' }),
+        processFrame: async () => { throw new Error('broken pipe'); },
+      },
+    };
+    const service = new CvService(native as never, () => true);
+    await service.start();
+    assert.ok(statusListener);
+    statusListener!({
+      eventId: 'cv-1-eof',
+      occurredAt: new Date().toISOString(),
+      payload: {
+        requestId: 'cv-status-1-eof',
+        status: 'failed',
+        error: { code: 'DEVICE_UNAVAILABLE', message: 'subprocess EOF' },
+      },
+    });
+    assert.equal(service.isRunning(), false);
+    assert.equal(service.getState().error, 'subprocess EOF');
+
+    await Promise.all([service.recover(), service.recover()]);
+    assert.equal(starts, 2, 'concurrent recovery must spawn only one subprocess');
+
+    const originalDocument = globalThis.document;
+    Object.defineProperty(globalThis, 'document', {
+      configurable: true,
+      value: {
+        createElement: () => ({
+          width: 0,
+          height: 0,
+          getContext: () => ({ drawImage: () => {} }),
+          toDataURL: () => 'data:image/jpeg;base64,/9j/',
+        }),
+      },
+    });
+    try {
+      await assert.rejects(service.submitFrame({
+        data: {} as HTMLVideoElement,
+        frameIndex: 1,
+        capturedAt: 1_000,
+        width: 640,
+        height: 480,
+      }), /broken pipe/);
+      assert.equal(service.isRunning(), false);
+
+      await service.recover();
+      statusListener!({
+        eventId: 'cv-3-eof',
+        occurredAt: new Date().toISOString(),
+        payload: { requestId: 'cv-status-3-eof', status: 'failed' },
+      });
+      await service.recover();
+      statusListener!({
+        eventId: 'cv-4-eof',
+        occurredAt: new Date().toISOString(),
+        payload: { requestId: 'cv-status-4-eof', status: 'failed' },
+      });
+      await assert.rejects(service.recover(), /recovery limit reached/i);
+      assert.equal(starts, 4, 'the recovery budget must prevent an unbounded restart loop');
+
+      // ActivityMonitoringContext calls this only on an actual inactive -> active
+      // camera transition, allowing restoration to begin a fresh bounded window.
+      service.resetRecoveryBudget();
+      await service.recover();
+      assert.equal(starts, 5);
+    } finally {
+      Object.defineProperty(globalThis, 'document', { configurable: true, value: originalDocument });
+      service.teardown();
+    }
+  });
 });

@@ -112,6 +112,15 @@ describe('FocusTimerService', () => {
     assert.equal(timer.start(), false);
   });
 
+  it('creates a database-compatible UUID and preserves it across pause/resume', () => {
+    assert.equal(timer.start(), true);
+    const sessionId = timer.getState().sessionId;
+    assert.match(sessionId ?? '', /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+    timer.pause();
+    timer.resume();
+    assert.equal(timer.getState().sessionId, sessionId);
+  });
+
   it('does not treat start from paused as a fresh session', () => {
     timer.start();
     timer.pause();

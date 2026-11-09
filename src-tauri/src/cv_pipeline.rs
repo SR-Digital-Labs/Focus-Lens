@@ -31,10 +31,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter};
 
 // ---------------------------------------------------------------------------
 // Event payloads
@@ -106,6 +107,7 @@ pub struct CvPipelineBridge {
     state: Arc<Mutex<Option<PipelineState>>>,
     running: Arc<Mutex<bool>>,
     last_frame_received: Mutex<Option<Instant>>,
+    generation: AtomicU64,
 }
 
 impl CvPipelineBridge {
@@ -114,6 +116,7 @@ impl CvPipelineBridge {
             state: Arc::new(Mutex::new(None)),
             running: Arc::new(Mutex::new(false)),
             last_frame_received: Mutex::new(None),
+            generation: AtomicU64::new(0),
         }
     }
 
@@ -196,6 +199,7 @@ impl CvPipelineBridge {
             }
         };
 
+        let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
         let reader_running = Arc::clone(&self.running);
         let app_clone = app.clone();
 
@@ -230,17 +234,19 @@ impl CvPipelineBridge {
                 };
 
                 seq += 1;
-                let event_id = format!("cv-{}", seq);
+                let event_id = cv_event_id(generation, seq);
                 let now = chrono_now_iso();
 
                 // Dispatch based on line type
                 if value.get("__type").and_then(Value::as_str) == Some("cv_status") {
                     // Emit as "cv-response" event
-                    let status = value.get("status")
+                    let status = value
+                        .get("status")
                         .and_then(Value::as_str)
                         .unwrap_or("failed")
                         .to_string();
-                    let error_msg = value.get("error")
+                    let error_msg = value
+                        .get("error")
                         .and_then(Value::as_str)
                         .map(|s| s.to_string());
 
@@ -248,7 +254,7 @@ impl CvPipelineBridge {
                         event_id,
                         occurred_at: now.clone(),
                         payload: CvResponsePayload {
-                            request_id: format!("cv-status-{}", seq),
+                            request_id: format!("cv-status-{generation}-{seq}"),
                             status,
                             error: error_msg.map(|msg| CvErrorPayload {
                                 code: "DEVICE_UNAVAILABLE".to_string(),
@@ -262,23 +268,25 @@ impl CvPipelineBridge {
                     }
                 } else {
                     // Treat as ActivitySignal
-                    let person_presence = value.get("person_presence")
+                    let person_presence = value
+                        .get("person_presence")
                         .and_then(Value::as_str)
                         .unwrap_or("UNKNOWN")
                         .to_string();
-                    let screen_facing = value.get("screen_facing")
+                    let screen_facing = value
+                        .get("screen_facing")
                         .and_then(Value::as_str)
                         .unwrap_or("UNKNOWN")
                         .to_string();
-                    let posture = value.get("posture")
+                    let posture = value
+                        .get("posture")
                         .and_then(Value::as_str)
                         .unwrap_or("UNKNOWN")
                         .to_string();
-                    let confidence = value.get("confidence")
-                        .and_then(Value::as_f64);
-                    let posture_reminder = value.get("posture_reminder")
-                        .and_then(Value::as_bool);
-                    let occurred_at = value.get("occurred_at")
+                    let confidence = value.get("confidence").and_then(Value::as_f64);
+                    let posture_reminder = value.get("posture_reminder").and_then(Value::as_bool);
+                    let occurred_at = value
+                        .get("occurred_at")
                         .and_then(Value::as_str)
                         .unwrap_or(&now)
                         .to_string();
@@ -303,9 +311,31 @@ impl CvPipelineBridge {
                 }
             }
 
+            let unexpectedly_stopped = reader_running
+                .lock()
+                .map(|running| *running)
+                .unwrap_or(false);
             match reader_running.lock() {
                 Ok(mut running) => *running = false,
-                Err(error) => eprintln!("[FocusLens CV] Unable to update subprocess status: {error}"),
+                Err(error) => {
+                    eprintln!("[FocusLens CV] Unable to update subprocess status: {error}")
+                }
+            }
+            if unexpectedly_stopped {
+                let occurred_at = chrono_now_iso();
+                let event = CvResponseEvent {
+                    event_id: cv_event_id(generation, seq + 1),
+                    occurred_at: occurred_at.clone(),
+                    payload: CvResponsePayload {
+                        request_id: format!("cv-status-{generation}-eof"),
+                        status: "failed".to_string(),
+                        error: Some(CvErrorPayload {
+                            code: "DEVICE_UNAVAILABLE".to_string(),
+                            message: "The CV subprocess terminated unexpectedly.".to_string(),
+                        }),
+                    },
+                };
+                let _ = app_clone.emit("cv-response", &event);
             }
             eprintln!("[FocusLens CV] Reader thread exiting.");
         });
@@ -334,14 +364,14 @@ impl CvPipelineBridge {
         if jpeg_base64.is_empty()
             || jpeg_base64.len() > 512 * 1024
             || jpeg_base64.len() % 4 != 0
-            || !jpeg_base64.bytes().all(|byte| {
-                byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'/' | b'=')
-            })
+            || !jpeg_base64
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'/' | b'='))
         {
             return Err("Camera frame must contain valid, bounded base64 JPEG data.".to_string());
         }
 
-        let running = self.running.lock().map_err(|error| error.to_string())?;
+        let mut running = self.running.lock().map_err(|error| error.to_string())?;
         if !*running {
             return Err("The CV pipeline is not running.".to_string());
         }
@@ -349,12 +379,17 @@ impl CvPipelineBridge {
         let pipeline = state
             .as_mut()
             .ok_or_else(|| "The CV pipeline process is not available.".to_string())?;
-        writeln!(
+        let write_result = writeln!(
             pipeline.stdin,
             "{{\"frame_index\":{frame_index},\"width\":{width},\"height\":{height},\"jpeg_base64\":\"{jpeg_base64}\"}}"
         )
-        .and_then(|()| pipeline.stdin.flush())
-        .map_err(|error| format!("Unable to forward a camera frame to the CV process: {error}"))?;
+        .and_then(|()| pipeline.stdin.flush());
+        if let Err(error) = write_result {
+            *running = false;
+            return Err(format!(
+                "Unable to forward a camera frame to the CV process: {error}"
+            ));
+        }
         *self
             .last_frame_received
             .lock()
@@ -370,12 +405,16 @@ impl CvPipelineBridge {
 
         let mut state_guard = self.state.lock().map_err(|e| e.to_string())?;
         if let Some(mut state) = state_guard.take() {
-            if state.child.try_wait().map_err(|error| {
-                format!("Unable to check the CV subprocess status: {error}")
-            })?.is_none() {
-                state.child.kill().map_err(|error| {
-                    format!("Unable to stop the CV subprocess: {error}")
-                })?;
+            if state
+                .child
+                .try_wait()
+                .map_err(|error| format!("Unable to check the CV subprocess status: {error}"))?
+                .is_none()
+            {
+                state
+                    .child
+                    .kill()
+                    .map_err(|error| format!("Unable to stop the CV subprocess: {error}"))?;
                 state.child.wait().map_err(|error| {
                     format!("Unable to wait for the CV subprocess to stop: {error}")
                 })?;
@@ -415,6 +454,25 @@ impl CvPipelineBridge {
                     .unwrap_or(false)
             })
             .map_err(|error| error.to_string())
+    }
+}
+
+fn cv_event_id(generation: u64, sequence: u64) -> String {
+    format!("cv-{generation}-{sequence}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cv_event_id;
+    use std::collections::HashSet;
+
+    #[test]
+    fn event_ids_are_unique_across_restarts() {
+        let ids: HashSet<_> = (1..=5)
+            .flat_map(|generation| (1..=20).map(move |sequence| cv_event_id(generation, sequence)))
+            .collect();
+        assert_eq!(ids.len(), 100);
+        assert_ne!(cv_event_id(1, 1), cv_event_id(2, 1));
     }
 }
 

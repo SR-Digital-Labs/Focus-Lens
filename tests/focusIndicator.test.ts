@@ -322,7 +322,7 @@ describe('FocusIndicatorCalculation — Day 19 Verification Scenarios', () => {
 
   it('calculates screen and posture intervals when lifecycle events are missing', () => {
     const start = 1_770_000_000_000;
-    const event = (id: string, seconds: number, type: ActivityEvent['type'], category: 'screen_facing' | 'posture', stateValue: string): ActivityEvent => ({
+    const event = (id: string, seconds: number, type: ActivityEvent['type'], category: 'person' | 'screen_facing' | 'posture', stateValue: string): ActivityEvent => ({
       id,
       sessionId: 'session-incomplete-lifecycle',
       timestamp: start + seconds * 1_000,
@@ -331,6 +331,7 @@ describe('FocusIndicatorCalculation — Day 19 Verification Scenarios', () => {
       stateValue,
     });
     const result = calculateFocusIndicatorFromEvents([
+      event('present-1', 0, 'PERSON_PRESENT', 'person', 'PRESENT'),
       event('facing-1', 0, 'SCREEN_FACING', 'screen_facing', 'SCREEN_FACING'),
       event('good-1', 0, 'POSTURE_GOOD', 'posture', 'GOOD_POSTURE'),
       event('looking-away', 5, 'LOOKING_AWAY', 'screen_facing', 'LOOKING_AWAY'),
@@ -346,6 +347,42 @@ describe('FocusIndicatorCalculation — Day 19 Verification Scenarios', () => {
     assert.equal(result.breakdown.screenFacingRatio, 0.5);
     assert.equal(result.breakdown.postureRatio, 0.75);
     assert.equal(result.score, 76.3);
+  });
+
+  it('does not interpret missing observations as confirmed presence', () => {
+    const start = 1_770_000_000_000;
+    const result = calculateFocusIndicatorFromEvents([{
+      id: 'session-start-only',
+      sessionId: 'session-unobserved',
+      timestamp: start,
+      type: 'SESSION_STARTED',
+      category: 'session',
+      stateValue: 'STARTED',
+    }], 'session-unobserved', {
+      activeDurationSeconds: 60,
+      now: start + 60_000,
+    });
+    assert.equal(result.status, 'insufficient_data');
+    assert.equal(result.score, null);
+    assert.equal(result.confidence, 0);
+  });
+
+  it('does not score facing or posture data when person presence is unavailable', () => {
+    const start = 1_770_000_000_000;
+    const result = calculateFocusIndicatorFromEvents([{
+      id: 'facing-without-presence',
+      sessionId: 'session-no-presence',
+      timestamp: start,
+      type: 'SCREEN_FACING',
+      category: 'screen_facing',
+      stateValue: 'SCREEN_FACING',
+    }], 'session-no-presence', {
+      activeDurationSeconds: 60,
+      now: start + 60_000,
+    });
+    assert.equal(result.status, 'insufficient_data');
+    assert.equal(result.score, null);
+    assert.match(result.summaryMessage, /presence observations are unavailable/i);
   });
 
   it('keeps short and empty event sessions from producing misleading scores', () => {

@@ -24,6 +24,9 @@ interface SessionRow {
   ended_at: string | null;
   elapsed_seconds: number;
   paused_duration_seconds: number;
+  focus_score: number | null;
+  observation_coverage: number | null;
+  scoring_version: string | null;
 }
 
 interface ActivityEventRow {
@@ -35,6 +38,11 @@ interface ActivityEventRow {
   away_started_at: number | null;
   threshold_reached_at: number | null;
   ended_at: number | null;
+  category: ActivityEvent['category'] | null;
+  state_value: string | null;
+  previous_state_value: string | null;
+  confidence: number | null;
+  metadata_json: string | null;
 }
 
 export interface SessionQuery {
@@ -50,6 +58,7 @@ export type SessionUpdate = Partial<
   Pick<
     Session,
     'status' | 'pausedAt' | 'endedAt' | 'elapsedSeconds' | 'pausedDurationSeconds'
+    | 'focusScore' | 'observationCoverage' | 'scoringVersion'
   >
 >;
 
@@ -61,6 +70,9 @@ const SESSION_UPDATE_COLUMNS = {
   endedAt: 'ended_at',
   elapsedSeconds: 'elapsed_seconds',
   pausedDurationSeconds: 'paused_duration_seconds',
+  focusScore: 'focus_score',
+  observationCoverage: 'observation_coverage',
+  scoringVersion: 'scoring_version',
 } as const satisfies Record<keyof SessionUpdate, string>;
 const PRIVACY_SETTING_KEYS = [
   'saveVideoLocally',
@@ -181,8 +193,9 @@ export class SessionRepository {
       await this.database.execute(
         `INSERT INTO sessions (
           id, status, planned_duration_seconds, started_at, paused_at, ended_at,
-          elapsed_seconds, paused_duration_seconds
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          elapsed_seconds, paused_duration_seconds, focus_score,
+          observation_coverage, scoring_version
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
         [
           value.id,
           value.status,
@@ -192,6 +205,9 @@ export class SessionRepository {
           value.endedAt,
           value.elapsedSeconds,
           value.pausedDurationSeconds,
+          value.focusScore ?? null,
+          value.observationCoverage ?? null,
+          value.scoringVersion ?? null,
         ],
       );
     } catch (error) {
@@ -204,7 +220,8 @@ export class SessionRepository {
     validateId(id, 'session');
     const rows = await this.database.select<SessionRow[]>(
       `SELECT id, status, planned_duration_seconds, started_at, paused_at, ended_at,
-              elapsed_seconds, paused_duration_seconds
+              elapsed_seconds, paused_duration_seconds, focus_score,
+              observation_coverage, scoring_version
        FROM sessions WHERE id = $1`,
       [id],
     );
@@ -247,7 +264,8 @@ export class SessionRepository {
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
     const rows = await this.database.select<SessionRow[]>(
       `SELECT id, status, planned_duration_seconds, started_at, paused_at, ended_at,
-              elapsed_seconds, paused_duration_seconds
+              elapsed_seconds, paused_duration_seconds, focus_score,
+              observation_coverage, scoring_version
        FROM sessions ${where}
        ORDER BY started_at ${direction}, id ASC
        LIMIT $${limitIndex}${offsetClause}`,
@@ -281,7 +299,8 @@ export class SessionRepository {
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
     const rows = await this.database.select<SessionRow[]>(
       `SELECT id, status, planned_duration_seconds, started_at, paused_at, ended_at,
-              elapsed_seconds, paused_duration_seconds
+              elapsed_seconds, paused_duration_seconds, focus_score,
+              observation_coverage, scoring_version
        FROM sessions ${where}
        ORDER BY started_at ${direction}, id ASC`,
       values,
@@ -440,12 +459,18 @@ export class ActivityEventRepository {
       awayEvent?.awayStartedAt ?? null,
       awayEvent?.thresholdReachedAt ?? null,
       awayEvent?.endedAt ?? null,
+      event.category ?? null,
+      event.stateValue ?? null,
+      event.previousStateValue ?? null,
+      event.confidence ?? null,
+      event.metadata === undefined ? null : JSON.stringify(event.metadata),
     ];
     const result = await this.database.execute(
       `INSERT INTO activity_events (
         event_id, session_id, event_type, occurred_at, duration_seconds,
-        away_started_at, threshold_reached_at, ended_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        away_started_at, threshold_reached_at, ended_at, category, state_value,
+        previous_state_value, confidence, metadata_json
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
       ON CONFLICT(event_id) DO UPDATE SET
         duration_seconds = excluded.duration_seconds,
         ended_at = excluded.ended_at
@@ -463,7 +488,8 @@ export class ActivityEventRepository {
     validateId(sessionId, 'session');
     const rows = await this.database.select<ActivityEventRow[]>(
       `SELECT event_id, session_id, event_type, occurred_at, duration_seconds,
-              away_started_at, threshold_reached_at, ended_at
+              away_started_at, threshold_reached_at, ended_at, category, state_value,
+              previous_state_value, confidence, metadata_json
        FROM activity_events WHERE session_id = $1
        ORDER BY occurred_at ASC`,
       [sessionId],
@@ -474,7 +500,8 @@ export class ActivityEventRepository {
   async listAll(): Promise<ActivityEvent[]> {
     const rows = await this.database.select<ActivityEventRow[]>(
       `SELECT event_id, session_id, event_type, occurred_at, duration_seconds,
-              away_started_at, threshold_reached_at, ended_at
+              away_started_at, threshold_reached_at, ended_at, category, state_value,
+              previous_state_value, confidence, metadata_json
        FROM activity_events
        ORDER BY occurred_at ASC`,
     );
@@ -582,6 +609,32 @@ function normalizeSession(session: Session): Session {
   ) {
     throw new Error('Session elapsed and paused durations must be finite and non-negative.');
   }
+  if (
+    normalized.focusScore !== undefined
+    && (!Number.isFinite(normalized.focusScore)
+      || normalized.focusScore < 0
+      || normalized.focusScore > 100)
+  ) {
+    throw new Error('Persisted focus score must be between 0 and 100.');
+  }
+  if (
+    normalized.observationCoverage !== undefined
+    && normalized.observationCoverage !== null
+    && (!Number.isFinite(normalized.observationCoverage)
+      || normalized.observationCoverage < 0
+      || normalized.observationCoverage > 1)
+  ) {
+    throw new Error('Observation coverage must be between 0 and 1.');
+  }
+  if (
+    normalized.scoringVersion !== undefined
+    && normalized.scoringVersion !== null
+    && (typeof normalized.scoringVersion !== 'string'
+      || !normalized.scoringVersion.trim()
+      || normalized.scoringVersion.length > 64)
+  ) {
+    throw new Error('Scoring version must be a non-empty string of at most 64 characters.');
+  }
   if ((normalized.status === 'paused') !== (normalized.pausedAt !== null)) {
     throw new Error('Paused sessions must have a pause timestamp; other states must not.');
   }
@@ -605,6 +658,9 @@ function sessionFromRow(row: SessionRow): Session {
     endedAt: row.ended_at,
     elapsedSeconds: row.elapsed_seconds,
     pausedDurationSeconds: row.paused_duration_seconds,
+    ...(row.focus_score == null ? {} : { focusScore: row.focus_score }),
+    ...(row.observation_coverage == null ? {} : { observationCoverage: row.observation_coverage }),
+    ...(row.scoring_version == null ? {} : { scoringVersion: row.scoring_version }),
   };
 }
 
@@ -614,6 +670,11 @@ function activityEventFromRow(row: ActivityEventRow): ActivityEvent {
     sessionId: row.session_id,
     timestamp: row.occurred_at,
     type: row.event_type,
+    ...(row.category === null ? {} : { category: row.category }),
+    ...(row.state_value === null ? {} : { stateValue: row.state_value }),
+    ...(row.previous_state_value === null ? {} : { previousStateValue: row.previous_state_value }),
+    ...(row.confidence === null ? {} : { confidence: row.confidence }),
+    ...(row.metadata_json === null ? {} : { metadata: parseStoredValue(row.metadata_json, 'activity metadata') }),
     ...(row.duration_seconds === null ? {} : { duration: row.duration_seconds }),
     ...(row.away_started_at === null ? {} : {
       awayStartedAt: row.away_started_at,
@@ -626,7 +687,14 @@ function activityEventFromRow(row: ActivityEventRow): ActivityEvent {
 function validateActivityEvent(event: ActivityEvent): void {
   validateId(event.id, 'event');
   validateId(event.sessionId, 'session');
-  if (!['focused', 'distracted', 'away'].includes(event.type)) {
+  const supportedTypes: ActivityEvent['type'][] = [
+    'focused', 'distracted', 'away',
+    'PERSON_PRESENT', 'PERSON_AWAY', 'PERSON_UNKNOWN',
+    'SCREEN_FACING', 'LOOKING_AWAY', 'SCREEN_FACING_UNKNOWN',
+    'POSTURE_GOOD', 'POSTURE_SLOUCHED', 'POSTURE_UNKNOWN',
+    'SESSION_STARTED', 'SESSION_PAUSED', 'SESSION_RESUMED', 'SESSION_ENDED', 'SESSION_COMPLETED',
+  ];
+  if (!supportedTypes.includes(event.type)) {
     throw new Error('Activity event type is not supported.');
   }
   if (!Number.isSafeInteger(event.timestamp) || event.timestamp < 0) {
@@ -687,6 +755,9 @@ function validateSessionUpdate(changes: SessionUpdate): void {
     'endedAt',
     'elapsedSeconds',
     'pausedDurationSeconds',
+    'focusScore',
+    'observationCoverage',
+    'scoringVersion',
   ]);
   const keys = Object.keys(changes);
   if (keys.length === 0 || keys.some((key) => !allowedKeys.has(key))) {

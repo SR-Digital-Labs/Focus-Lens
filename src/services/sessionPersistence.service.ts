@@ -3,6 +3,7 @@ import type { ActivityMonitoringState, Unsubscribe } from './contracts';
 import type { AwayDetectionEvent, AwayDetectionSnapshot } from './awayDetection.service';
 import type { ActivityEventRepository, SessionUpdate } from './db.service';
 import type { Session } from '../types';
+import { calculateFocusIndicatorFromEvents, FOCUS_SCORING_VERSION } from './focusIndicator.service.ts';
 
 interface SessionPersistenceOptions {
   activity: {
@@ -20,6 +21,10 @@ interface SessionPersistenceOptions {
     update(id: string, changes: SessionUpdate): Promise<unknown>;
   };
   events: Pick<ActivityEventRepository, 'record'>;
+  tracker?: {
+    subscribe(listener: (event: import('../types').ActivityEvent) => void): Unsubscribe;
+    getEvents(sessionId?: string): import('../types').ActivityEvent[];
+  };
   now?: () => number;
   onError?: (error: Error) => void;
 }
@@ -30,6 +35,7 @@ export class SessionPersistenceService {
   private readonly away: SessionPersistenceOptions['away'];
   private readonly sessions: SessionPersistenceOptions['sessions'];
   private readonly events: SessionPersistenceOptions['events'];
+  private readonly tracker: SessionPersistenceOptions['tracker'];
   private readonly now: () => number;
   private readonly onError: (error: Error) => void;
   private currentSession: Session | null = null;
@@ -38,10 +44,12 @@ export class SessionPersistenceService {
   private previousActivityState: ActivityMonitoringState | null = null;
   private lastPersistedElapsedSecond = 0;
   private pendingWrites: Promise<void> = Promise.resolve();
+  private lastError: Error | null = null;
   private awayEventStates = new Map<string, boolean>();
   private unsubscribeActivity: Unsubscribe | null = null;
   private unsubscribeTimer: Unsubscribe | null = null;
   private unsubscribeAway: Unsubscribe | null = null;
+  private unsubscribeTracker: Unsubscribe | null = null;
   private started = false;
 
   constructor(options: SessionPersistenceOptions) {
@@ -50,6 +58,7 @@ export class SessionPersistenceService {
     this.away = options.away;
     this.sessions = options.sessions;
     this.events = options.events;
+    this.tracker = options.tracker;
     this.now = options.now ?? Date.now;
     this.onError = options.onError ?? ((error) => console.error('Session persistence failed:', error));
     this.timerState = this.timer.getState();
@@ -63,6 +72,9 @@ export class SessionPersistenceService {
     this.unsubscribeActivity = this.activity.subscribe((state) => this.onActivityState(state));
     this.unsubscribeTimer = this.timer.subscribe((state) => this.onTimerState(state));
     this.unsubscribeAway = this.away.subscribe((snapshot) => this.onAwaySnapshot(snapshot));
+    this.unsubscribeTracker = this.tracker?.subscribe((event) => {
+      this.enqueue(() => this.events.record({ ...event }));
+    }) ?? null;
     return () => this.stop();
   }
 
@@ -70,14 +82,20 @@ export class SessionPersistenceService {
     this.unsubscribeActivity?.();
     this.unsubscribeTimer?.();
     this.unsubscribeAway?.();
+    this.unsubscribeTracker?.();
     this.unsubscribeActivity = null;
     this.unsubscribeTimer = null;
     this.unsubscribeAway = null;
+    this.unsubscribeTracker = null;
     this.started = false;
   }
 
   flush(): Promise<void> {
     return this.pendingWrites;
+  }
+
+  getLastError(): Error | null {
+    return this.lastError;
   }
 
   async interrupt(): Promise<void> {
@@ -234,6 +252,17 @@ export class SessionPersistenceService {
       ),
       pausedDurationSeconds,
     };
+    const scoring = this.tracker
+      ? calculateFocusIndicatorFromEvents(this.tracker.getEvents(current.id), current.id, {
+        activeDurationSeconds: ended.elapsedSeconds,
+        now,
+      })
+      : null;
+    ended.scoringVersion = FOCUS_SCORING_VERSION;
+    ended.observationCoverage = scoring?.confidence ?? 0;
+    if (scoring?.score !== null && scoring?.score !== undefined) {
+      ended.focusScore = scoring.score;
+    }
     this.currentSession = ended;
     this.enqueue(async () => {
       await this.sessions.update(ended.id, sessionUpdateFrom(ended));
@@ -278,6 +307,7 @@ export class SessionPersistenceService {
       .then(operation)
       .catch((error: unknown) => {
         const normalized = error instanceof Error ? error : new Error('Unknown local persistence error.');
+        this.lastError = normalized;
         this.onError(normalized);
       });
   }
@@ -290,5 +320,8 @@ function sessionUpdateFrom(session: Session): SessionUpdate {
     endedAt: session.endedAt,
     elapsedSeconds: session.elapsedSeconds,
     pausedDurationSeconds: session.pausedDurationSeconds,
+    ...(session.focusScore === undefined ? {} : { focusScore: session.focusScore }),
+    observationCoverage: session.observationCoverage ?? 0,
+    scoringVersion: session.scoringVersion ?? FOCUS_SCORING_VERSION,
   };
 }

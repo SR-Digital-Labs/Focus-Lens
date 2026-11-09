@@ -32,6 +32,10 @@ export interface Session {
    */
   focusScore?: number;
   focusIndicatorScore?: number;
+  /** Version of the deterministic scoring contract used for persisted analytics. */
+  scoringVersion?: string | null;
+  /** Fraction of active time covered by usable observations; null for legacy sessions. */
+  observationCoverage?: number | null;
 }
 
 export type FocusDurationPreset = 25 | 45 | 60;

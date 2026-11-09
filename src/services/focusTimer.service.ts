@@ -29,6 +29,11 @@ export interface SessionLifecycleEvent {
   timestamp: number;
 }
 
+/** Generate the canonical identifier shared by timer, monitor and storage. */
+export function createFocusSessionId(): string {
+  return crypto.randomUUID();
+}
+
 export function formatTimerDisplay(totalSeconds: number): string {
   const safeSeconds = Math.max(0, Math.floor(totalSeconds));
   const hours = Math.floor(safeSeconds / 3600);
@@ -169,7 +174,7 @@ export class FocusTimerService {
     this._remainingSeconds = this._totalSeconds;
     this._targetDeadline = Date.now() + this._remainingSeconds * 1000;
     this._status = 'running';
-    this._sessionId = customSessionId || `session_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    this._sessionId = customSessionId || createFocusSessionId();
     this._sessionStartTime = Date.now();
 
     this.startTicker();

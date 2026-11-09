@@ -2,7 +2,9 @@
 FocusLens — Activity Signal Aggregator
 =======================================
 Day 12 & Day 15: Aggregates individual frame results into a stable application state.
-Only emits updates when the overall state changes to avoid unnecessary noise.
+Emits state changes plus low-frequency observation heartbeats.  Heartbeats let
+consumers distinguish a healthy pipeline observing an unchanged state from a
+pipeline that has stalled.
 
 Supports:
 - Tracking person presence, screen facing, and posture states.
@@ -29,11 +31,15 @@ class ActivitySignalAggregator:
     Produces an updated signal only when the underlying CV state changes.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, heartbeat_interval_seconds: float = 5.0) -> None:
+        if heartbeat_interval_seconds <= 0:
+            raise ValueError("heartbeat_interval_seconds must be positive")
         self._current_person: str = PersonState.UNKNOWN
         self._current_facing: str = ScreenFacingState.UNKNOWN
         self._current_posture: str = PostureState.UNKNOWN
         self._last_signal_time: float = 0.0
+        self._last_observation_time: float = 0.0
+        self._heartbeat_interval_seconds = heartbeat_interval_seconds
         self._listeners: List[Callable[[Dict[str, Any]], None]] = []
 
     # ------------------------------------------------------------------
@@ -57,7 +63,7 @@ class ActivitySignalAggregator:
 
     @property
     def last_signal_time(self) -> float:
-        """Timestamp of the most recent state change."""
+        """Timestamp of the most recently emitted change or heartbeat."""
         return self._last_signal_time
 
     def get_current_state(self) -> Dict[str, Any]:
@@ -69,6 +75,7 @@ class ActivitySignalAggregator:
             "screen_facing": self._current_facing,
             "posture": self._current_posture,
             "timestamp": self._last_signal_time,
+            "observed_at": self._last_observation_time,
         }
 
     # ------------------------------------------------------------------
@@ -91,6 +98,7 @@ class ActivitySignalAggregator:
         self._current_facing = ScreenFacingState.UNKNOWN
         self._current_posture = PostureState.UNKNOWN
         self._last_signal_time = 0.0
+        self._last_observation_time = 0.0
 
     # ------------------------------------------------------------------
     # State Updates
@@ -133,6 +141,7 @@ class ActivitySignalAggregator:
         Directly update state components and emit signal if any state changed.
         """
         changed = False
+        observed_at = time.time()
 
         # Normalize posture state to avoid any string mismatches
         normalized_posture = PostureState.normalize(posture_state)
@@ -150,15 +159,23 @@ class ActivitySignalAggregator:
             self._current_posture = normalized_posture
             changed = True
 
-        # If any tracked state changed, construct a new signal
-        if changed or posture_reminder:
-            self._last_signal_time = time.time()
+        heartbeat_due = (
+            self._last_signal_time == 0.0
+            or observed_at - self._last_signal_time >= self._heartbeat_interval_seconds
+        )
+        self._last_observation_time = observed_at
+
+        # State transitions are immediate.  Otherwise emit a bounded heartbeat
+        # so an unchanged AWAY/PRESENT observation remains fresh downstream.
+        if changed or posture_reminder or heartbeat_due:
+            self._last_signal_time = observed_at
             signal = {
                 "person_presence": self._current_person,
                 "screen_facing": self._current_facing,
                 "posture": self._current_posture,
                 "confidence": confidence,
                 "timestamp": self._last_signal_time,
+                "observation_heartbeat": not changed and not posture_reminder,
                 "posture_reminder": posture_reminder,
             }
             log.info(

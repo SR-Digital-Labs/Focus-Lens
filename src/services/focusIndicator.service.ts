@@ -69,6 +69,9 @@ export const DEFAULT_FOCUS_INDICATOR_WEIGHTS: Readonly<FocusIndicatorWeights> = 
   postureWeight: 0.25,
 });
 
+/** Increment only when the documented scoring inputs or formula change. */
+export const FOCUS_SCORING_VERSION = 'focus-indicator-v1';
+
 /**
  * Raw session metrics used as input to the Focus Indicator calculation.
  */
@@ -509,6 +512,31 @@ export function calculateFocusIndicatorFromEvents(
   const hasLifecycleEvents = sessionEvents.some(
     (event) => event.category === 'session' || event.type.startsWith('SESSION_'),
   );
+  const hasDetectionEvents = sessionEvents.some((event) =>
+    event.category === 'person'
+    || event.category === 'screen_facing'
+    || event.category === 'posture'
+    || event.type.startsWith('PERSON_')
+    || ['SCREEN_FACING', 'LOOKING_AWAY', 'SCREEN_FACING_UNKNOWN'].includes(event.type)
+    || event.type.startsWith('POSTURE_'),
+  );
+  if (!hasDetectionEvents) {
+    return createEmptyResult(
+      sessionId,
+      'insufficient_data',
+      'The session contains no persisted activity observations.',
+    );
+  }
+  const hasPersonObservations = sessionEvents.some((event) =>
+    event.category === 'person' || event.type.startsWith('PERSON_'),
+  );
+  if (!hasPersonObservations) {
+    return createEmptyResult(
+      sessionId,
+      'insufficient_data',
+      'Person-presence observations are unavailable for this session.',
+    );
+  }
   if (!hasLifecycleEvents && options?.activeDurationSeconds !== undefined) {
     endMs = Math.max(endMs, startMs + options.activeDurationSeconds * 1_000);
   }
@@ -520,6 +548,8 @@ export function calculateFocusIndicatorFromEvents(
   let slouchedPostureMs = 0;
   let unknownDetectionMs = 0;
   let postureEventCount = 0;
+  let presentMs = 0;
+  let personAwayMs = 0;
 
   // Track state intervals during active running periods
   // Older/incomplete event sets may contain only detection transitions. In
@@ -529,6 +559,7 @@ export function calculateFocusIndicatorFromEvents(
   let lastStateChangeTimeMs = startMs;
   let currentScreenFacing: 'SCREEN_FACING' | 'LOOKING_AWAY' | 'UNKNOWN' = 'UNKNOWN';
   let currentPosture: 'GOOD_POSTURE' | 'SLOUCHED_POSTURE' | 'UNKNOWN' = 'UNKNOWN';
+  let currentPerson: 'PRESENT' | 'AWAY' | 'UNKNOWN' = 'UNKNOWN';
 
   for (const event of sessionEvents) {
     const t = event.timestamp;
@@ -537,13 +568,20 @@ export function calculateFocusIndicatorFromEvents(
     if (isRunning && t > lastStateChangeTimeMs) {
       const deltaMs = t - lastStateChangeTimeMs;
 
+      if (currentPerson === 'PRESENT') presentMs += deltaMs;
+      else if (currentPerson === 'AWAY') personAwayMs += deltaMs;
+
       if (currentScreenFacing === 'SCREEN_FACING') screenFacingMs += deltaMs;
       else if (currentScreenFacing === 'LOOKING_AWAY') lookingAwayMs += deltaMs;
 
       if (currentPosture === 'GOOD_POSTURE') goodPostureMs += deltaMs;
       else if (currentPosture === 'SLOUCHED_POSTURE') slouchedPostureMs += deltaMs;
 
-      if (currentScreenFacing === 'UNKNOWN' && currentPosture === 'UNKNOWN') {
+      if (
+        currentPerson === 'UNKNOWN'
+        && currentScreenFacing === 'UNKNOWN'
+        && currentPosture === 'UNKNOWN'
+      ) {
         unknownDetectionMs += deltaMs;
       }
     }
@@ -574,6 +612,16 @@ export function calculateFocusIndicatorFromEvents(
       }
     }
 
+    if (event.category === 'person' || event.type.startsWith('PERSON_')) {
+      if (event.type === 'PERSON_PRESENT' || event.stateValue === 'PRESENT') {
+        currentPerson = 'PRESENT';
+      } else if (event.type === 'PERSON_AWAY' || event.stateValue === 'AWAY') {
+        currentPerson = 'AWAY';
+      } else {
+        currentPerson = 'UNKNOWN';
+      }
+    }
+
     // Handle posture transitions
     if (event.category === 'posture' || event.type === 'POSTURE_GOOD' || event.type === 'POSTURE_SLOUCHED' || event.type === 'POSTURE_UNKNOWN') {
       if (event.type === 'POSTURE_GOOD' || event.stateValue === 'GOOD_POSTURE') {
@@ -591,11 +639,17 @@ export function calculateFocusIndicatorFromEvents(
   // time (or `now`) but the event stream has no explicit terminal marker.
   if (isRunning && endMs > lastStateChangeTimeMs) {
     const deltaMs = endMs - lastStateChangeTimeMs;
+    if (currentPerson === 'PRESENT') presentMs += deltaMs;
+    else if (currentPerson === 'AWAY') personAwayMs += deltaMs;
     if (currentScreenFacing === 'SCREEN_FACING') screenFacingMs += deltaMs;
     else if (currentScreenFacing === 'LOOKING_AWAY') lookingAwayMs += deltaMs;
     if (currentPosture === 'GOOD_POSTURE') goodPostureMs += deltaMs;
     else if (currentPosture === 'SLOUCHED_POSTURE') slouchedPostureMs += deltaMs;
-    if (currentScreenFacing === 'UNKNOWN' && currentPosture === 'UNKNOWN') {
+    if (
+      currentPerson === 'UNKNOWN'
+      && currentScreenFacing === 'UNKNOWN'
+      && currentPosture === 'UNKNOWN'
+    ) {
       unknownDetectionMs += deltaMs;
     }
   }
@@ -604,13 +658,18 @@ export function calculateFocusIndicatorFromEvents(
     {
       sessionId,
       activeDurationSeconds: rawActiveSeconds,
-      awayDurationSeconds,
-      screenFacingDurationSeconds: Math.floor(screenFacingMs / 1000),
-      lookingAwayDurationSeconds: Math.floor(lookingAwayMs / 1000),
-      goodPostureDurationSeconds: Math.floor(goodPostureMs / 1000),
-      slouchedPostureDurationSeconds: Math.floor(slouchedPostureMs / 1000),
+      awayDurationSeconds: Math.max(awayDurationSeconds, personAwayMs / 1000),
+      presentDurationSeconds: Math.floor(presentMs / 1000),
+      ...(screenFacingMs + lookingAwayMs > 0 ? {
+        screenFacingDurationSeconds: Math.floor(screenFacingMs / 1000),
+        lookingAwayDurationSeconds: Math.floor(lookingAwayMs / 1000),
+      } : {}),
+      ...(goodPostureMs + slouchedPostureMs > 0 ? {
+        goodPostureDurationSeconds: Math.floor(goodPostureMs / 1000),
+        slouchedPostureDurationSeconds: Math.floor(slouchedPostureMs / 1000),
+        postureEventCount,
+      } : {}),
       unknownDurationSeconds: Math.floor(unknownDetectionMs / 1000),
-      postureEventCount,
     },
     options
   );

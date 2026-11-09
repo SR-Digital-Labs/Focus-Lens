@@ -36,6 +36,17 @@ export interface CvServiceState {
 }
 
 export class CvService {
+  private readonly native: typeof focusLensService;
+  private readonly availability: () => boolean;
+
+  constructor(
+    native: typeof focusLensService = focusLensService,
+    availability: () => boolean = isTauri,
+  ) {
+    this.native = native;
+    this.availability = availability;
+  }
+
   private running = false;
   private lastStatusMessage: string | null = null;
   private lastSignal: ActivitySignal | null = null;
@@ -46,12 +57,15 @@ export class CvService {
   private lastFrameSubmittedAt = 0;
   private frameSubmissionPending = false;
   private frameSubmissionFailed = false;
+  private recoveryPromise: Promise<CvPipelineStatus> | null = null;
+  private consecutiveRecoveryAttempts = 0;
+  private static readonly MAX_RECOVERY_ATTEMPTS = 3;
 
   /**
    * Check whether the native desktop CV environment is available.
    */
   public isAvailable(): boolean {
-    return isTauri();
+    return this.availability();
   }
 
   /**
@@ -97,8 +111,9 @@ export class CvService {
       // Set up listeners for pipeline events if not already established
       await this.ensureEventListeners();
 
-      const result = await focusLensService.cv.start();
+      const result = await this.native.cv.start();
       this.running = result.running;
+      this.frameSubmissionPending = false;
       this.frameSubmissionFailed = false;
       this.lastStatusMessage = result.message;
       this.error = null;
@@ -107,6 +122,7 @@ export class CvService {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.running = false;
+      this.frameSubmissionPending = false;
       this.error = message;
       this.notifyListeners();
       throw err;
@@ -125,7 +141,7 @@ export class CvService {
     }
 
     try {
-      const result = await focusLensService.cv.stop();
+      const result = await this.native.cv.stop();
       this.running = false;
       this.lastFrameSubmittedAt = 0;
       this.frameSubmissionFailed = false;
@@ -181,7 +197,7 @@ export class CvService {
         throw new Error('The encoded camera frame exceeds the desktop processing limit.');
       }
 
-      await focusLensService.cv.processFrame({
+      await this.native.cv.processFrame({
         frameIndex: frame.frameIndex,
         width,
         height,
@@ -189,6 +205,7 @@ export class CvService {
       });
     } catch (error) {
       this.frameSubmissionFailed = true;
+      this.running = false;
       this.error = error instanceof Error ? error.message : String(error);
       this.notifyListeners();
       throw error;
@@ -201,7 +218,32 @@ export class CvService {
    * Query current camera / pipeline status.
    */
   public async getCameraStatus(): Promise<CameraStatus> {
-    return focusLensService.camera.getStatus();
+    return this.native.camera.getStatus();
+  }
+
+  /**
+   * Perform one bounded, de-duplicated recovery attempt.  The caller controls
+   * when restoration is appropriate (for example after the camera returns).
+   */
+  public recover(): Promise<CvPipelineStatus> {
+    if (this.running) {
+      return Promise.resolve({ running: true, message: 'CV pipeline is already active.' });
+    }
+    if (this.recoveryPromise) return this.recoveryPromise;
+    if (this.consecutiveRecoveryAttempts >= CvService.MAX_RECOVERY_ATTEMPTS) {
+      return Promise.reject(new Error('CV recovery limit reached. Start a new session to retry.'));
+    }
+    this.consecutiveRecoveryAttempts += 1;
+    this.frameSubmissionPending = false;
+    this.frameSubmissionFailed = false;
+    this.recoveryPromise = this.start().finally(() => {
+      this.recoveryPromise = null;
+    });
+    return this.recoveryPromise;
+  }
+
+  public resetRecoveryBudget(): void {
+    this.consecutiveRecoveryAttempts = 0;
   }
 
   /**
@@ -210,7 +252,7 @@ export class CvService {
   public async subscribeSignals(
     handler: (event: ServiceEvent<ActivitySignal>) => void,
   ): Promise<Unsubscribe> {
-    return focusLensService.activity.subscribe(handler);
+    return this.native.activity.subscribe(handler);
   }
 
   /**
@@ -219,7 +261,7 @@ export class CvService {
   public async subscribeCvResponses(
     handler: (event: ServiceEvent<CvResponse>) => void,
   ): Promise<Unsubscribe> {
-    return focusLensService.cv.subscribe(handler);
+    return this.native.cv.subscribe(handler);
   }
 
   /**
@@ -228,7 +270,7 @@ export class CvService {
   public async connectToEventTracker(
     tracker: ActivityEventTrackerService = activityEventTracker,
   ): Promise<Unsubscribe> {
-    return focusLensService.activity.connectToEventTracker(tracker);
+    return this.native.activity.connectToEventTracker(tracker);
   }
 
   /**
@@ -246,11 +288,13 @@ export class CvService {
     this.lastFrameSubmittedAt = 0;
     this.frameSubmissionPending = false;
     this.frameSubmissionFailed = false;
+    this.recoveryPromise = null;
+    this.consecutiveRecoveryAttempts = 0;
   }
 
   private async ensureEventListeners(): Promise<void> {
     if (!this.unsubscribeSignals) {
-      this.unsubscribeSignals = await focusLensService.activity.subscribe((event) => {
+      this.unsubscribeSignals = await this.native.activity.subscribe((event) => {
         if (event.payload) {
           this.lastSignal = event.payload;
           this.notifyListeners();
@@ -259,10 +303,18 @@ export class CvService {
     }
 
     if (!this.unsubscribeStatus) {
-      this.unsubscribeStatus = await focusLensService.cv.subscribe((event) => {
+      this.unsubscribeStatus = await this.native.cv.subscribe((event) => {
         if (event.payload) {
           if (event.payload.status === 'failed' || event.payload.status === 'unavailable') {
+            this.running = false;
+            this.frameSubmissionPending = false;
+            this.frameSubmissionFailed = false;
             this.error = event.payload.error?.message ?? `CV status: ${event.payload.status}`;
+            this.notifyListeners();
+          } else if (event.payload.status === 'completed') {
+            this.running = true;
+            this.consecutiveRecoveryAttempts = 0;
+            this.error = null;
             this.notifyListeners();
           }
         }
